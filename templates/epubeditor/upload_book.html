@@ -1,0 +1,19 @@
+{% extends "epubeditor/base.html" %}
+
+{% block title %}Upload{% endblock %}
+
+{% block main %}
+
+  <p>
+    Only supports the EPUB 3 format because of its media overlay support.
+    Get in touch if you know about tools for easy EPUB 2 to EPUB 3 conversion.
+  </p>
+
+  <p>Upload and validation will take some time, please have patience.</p>
+
+  <form enctype="multipart/form-data" method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <sl-button class="form-submit-button" type="submit" value="upload">Upload</sl-button>
+  </form>
+{% endblock main %}

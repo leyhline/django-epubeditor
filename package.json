@@ -1,0 +1,36 @@
+{
+  "name": "epubeditor",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "build": "rollup --config",
+    "watch": "rollup --config --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@shoelace-style/shoelace": "^2.14.0",
+    "lit": "^3.0.0",
+    "@lit/task": "^1.0.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.2.5",
+    "rollup": "^4.12.1",
+    "rollup-plugin-copy": "^3.5.0",
+    "rollup-plugin-css-only": "^4.5.2",
+    "rollup-plugin-workbox": "^8.1.0",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.2",
+    "typescript-eslint": "^7.2.0"
+  },
+  "prettier": {
+    "printWidth": 120
+  }
+}

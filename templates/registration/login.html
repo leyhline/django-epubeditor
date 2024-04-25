@@ -1,0 +1,17 @@
+{% extends "epubeditor/base.html" %}
+
+{% block title %}Login{% endblock %}
+
+{% block main %}
+  <h1>Login</h1>
+  <form method="post">
+    {% csrf_token %}
+    {{ form }}
+    <input type="hidden" name="next" value="{% url "book_list" %}">
+    <div slot="footer">
+      <sl-button class="form-submit-button" type="submit" value="login">Login</sl-button>
+      <sl-button variant="text" size="small" href="{% url "password_reset" %}">Reset password</sl-button>
+      <sl-button variant="text" size="small" href="{% url "signup" %}">Signup</sl-button>
+    </div>
+  </form>
+{% endblock main %}

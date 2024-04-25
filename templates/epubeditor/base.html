@@ -1,0 +1,94 @@
+{% load static %}
+
+<!doctype html>
+<html lang="en" class="sl-theme-light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="application-name" content="EPUB Editor">
+  <meta name="author" content="Thomas Leyh">
+  <meta name="description" content="EPUB 3 Editor for Django with focus on media overlay editing."/>
+  <meta name="theme-color" content="#f97316">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}{% endblock %} - EPUB Editor</title>
+  <link rel="manifest" href="{% static "epubeditor/app.webmanifest" %}" />
+  <link rel="license" href="{% url "about" %}">
+  <link rel="icon" sizes="any" type="image/svg+xml" href="{% static "epubeditor/images/favicon.svg" %}">
+  <link rel="stylesheet" href="{% static "epubeditor/main.css" %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <sl-icon-button id="nav-toggle" name="list" label="toggle side menu"></sl-icon-button>
+    <sl-tooltip id="header-spinner" placement="bottom-start" class="invisible">
+      <sl-spinner></sl-spinner>
+    </sl-tooltip>
+  </div>
+  <div class="header-center">
+    {% block header_center %}{% endblock %}
+  </div>
+  <div class="header-right">
+    {% block header_right %}{% endblock %}
+  </div>
+</header>
+
+<div class="container">
+  <sl-drawer id="nav-drawer" contained no-header placement="start">
+    <nav>
+      <div class="nav-drawer-top">
+        <div hidden><sl-button id="home-button" href="{% url 'home' %}" variant="text" size="large">Home</sl-button></div>
+        <sl-button href="{% url 'book_list' %}" variant="text" size="large">Books</sl-button>
+        {% if user.is_authenticated %}
+          <sl-button href="{% url 'upload_book' %}" variant="text" size="large">Upload</sl-button>
+        {% endif %}
+        {% if user.is_authenticated %}
+          <sl-dropdown skidding="20">
+            <sl-menu>
+              <form method="post" action="{% url "logout" %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{% url "home" %}">
+                <sl-menu-item><sl-button class="form-submit-button" type="submit" value="logout" variant="text">Logout</sl-button></sl-menu-item>
+              </form>
+              <a href="{% url "password_change" %}"><sl-menu-item>Change password</sl-menu-item></a>
+              <a href="{% url "delete_account" %}"><sl-menu-item>Delete account</sl-menu-item></a>
+            </sl-menu>
+            <sl-button slot="trigger" variant="text" size="large" caret>{{ user.username }}</sl-button>
+          </sl-dropdown>
+        {% else %}
+          <form method="post" action="{% url "login" %}">
+            <sl-dialog id="login-dialog" label="Login">
+              {% csrf_token %}
+              {{ login_form }}
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <div slot="footer">
+                <sl-button class="form-submit-button" type="submit" value="login">Login</sl-button>
+                <sl-button variant="text" size="small" href="{% url "password_reset" %}">Reset password</sl-button>
+                <sl-button variant="text" size="small" href="{% url "signup" %}">Signup</sl-button>
+              </div>
+            </sl-dialog>
+          </form>
+          <sl-button id="login-dialog-open" variant="text" size="large">Login</sl-button>
+        {% endif %}
+      </div>
+      <div class="nav-drawer-bottom">
+        <div class="nav-drawer-bottom-row">
+          <sl-button href="{% url "about" %}" variant="text" size="large">About</sl-button>
+          <sl-icon-button id="color-mode-toggle" name="circle-half" label="toggle light/dark/system colors"></sl-icon-button>
+        </div>
+      </div>
+    </nav>
+  </sl-drawer>
+
+  <main id="content">
+    {% block main %}{% endblock %}
+  </main>
+
+  <sl-dialog id="error-dialog"></sl-dialog>
+</div>
+
+<script type="module" src="{% static "epubeditor/main.js" %}"></script>
+
+</body>
+</html>

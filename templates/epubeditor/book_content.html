@@ -1,0 +1,46 @@
+{% extends "epubeditor/base.html" %}
+
+{% block head %}
+  {% if prev_item_id %}<link rel="prev" href="{% url "book_content" username basename prev_item_id %}">{% endif %}>
+  {% if next_item_id %}<link rel="next" href="{% url "book_content" username basename next_item_id %}">{% endif %}>
+{% endblock %}
+{% block title %}{{ title }} - {{ book.title }}{% endblock %}
+
+{% block header_center %}
+  <sl-button-group label="book navigation">
+    <sl-button id="prev-chapter" variant="primary"
+               {% if prev_item_id %}href="{% url "book_content" username basename prev_item_id %}"
+               {% else %}disabled{% endif %}>
+      <sl-icon name="chevron-left" label="to previous chapter"></sl-icon>
+    </sl-button>
+    <sl-button id="to-toc" variant="primary" href="{% url "book_detail" username basename %}">
+      <sl-icon name="book" label="to table of contents"></sl-icon>
+    </sl-button>
+    <sl-button id="next-chapter" variant="primary"
+               {% if next_item_id %}href="{% url "book_content" username basename next_item_id %}"
+               {% else %}disabled{% endif %}>
+      <sl-icon name="chevron-right" label="to next chapter"></sl-icon>
+    </sl-button>
+  </sl-button-group>
+{% endblock header_center %}
+
+{% block header_right %}
+  {% if editable %}
+    <sl-icon-button id="edit-mode-toggle" name="pencil" label="toggle edit mode" disabled></sl-icon-button>
+  {% endif %}
+  <sl-dropdown>
+    <sl-icon-button slot="trigger" name="three-dots-vertical" label="toggle menu"></sl-icon-button>
+    <sl-menu>
+      <a href="{% url "history" username basename %}"><sl-menu-item>History</sl-menu-item></a>
+      <a href="{% url "resources" username basename %}"><sl-menu-item>Resources</sl-menu-item></a>
+    </sl-menu>
+  </sl-dropdown>
+{% endblock header_right %}
+
+{% block main %}
+  <epub-edit
+          src="{% url "resource_data" username basename xhtml %}"
+          {% if smil %} smilsrc="{% url "resource_data" username basename smil %}" {% endif %}
+          {% if active_class_name %}activeclass="{{ active_class_name }}"{% endif %}>
+  </epub-edit>
+{% endblock main %}

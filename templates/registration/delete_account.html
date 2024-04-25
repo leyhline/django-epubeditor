@@ -1,0 +1,15 @@
+{% extends "epubeditor/base.html" %}
+
+{% block title %}Delete account{% endblock %}
+
+{% block main %}
+  <h1>Delete account</h1>
+  <p>Completely deleted the user account: <em>{{ user.username }}</em></p>
+  <p>Warning: Restoration will not be possible.</p>
+  <p>Please confirm by entering your username and password.</p>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <sl-button class="form-submit-button" type="submit" value="delete">Delete</sl-button>
+  </form>
+{% endblock main %}

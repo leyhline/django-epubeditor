@@ -1,0 +1,33 @@
+{% extends "epubeditor/base.html" %}
+
+{% block title %}{{ book.title }}{% endblock %}
+
+{% block header_center %}
+  <sl-icon-button name="bookshelf" label="Return to book list" href="{% url "book_list" %}"></sl-icon-button>
+{% endblock header_center %}
+
+{% block main %}
+  <h1>{{ book.title }}</h1>
+  <ol>
+    {% for item in listing %}
+      <li>
+        <a href="{{ item.id }}/">{{ item.text }}</a>
+        {% if item.media_overlay_id %}
+        <sl-tooltip content="{{ item.media_overlay_id }}" placement="right">
+          <sl-icon-button name="ear" label="media-overlay indicator" href="{% url "resource_data" username basename item.media_overlay_path %}"></sl-icon-button>
+        </sl-tooltip>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+{% endblock main %}
+
+{% block header_right %}
+  <sl-dropdown>
+    <sl-icon-button slot="trigger" name="three-dots-vertical" label="toggle menu"></sl-icon-button>
+    <sl-menu>
+      <a href="{% url "history" username basename %}"><sl-menu-item>History</sl-menu-item></a>
+      <a href="{% url "resources" username basename %}"><sl-menu-item>Resources</sl-menu-item></a>
+    </sl-menu>
+  </sl-dropdown>
+{% endblock header_right %}

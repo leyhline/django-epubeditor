@@ -1,0 +1,14 @@
+{% extends "epubeditor/base.html" %}
+
+{% block title %}Delete {{ book.title }}{% endblock %}
+
+{% block main %}
+  <h1>Delete: {{ book.title }}</h1>
+  <p>Warning: Restoration will not be possible.</p>
+  <p>Please confirm by entering your username and the book's title.</p>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <sl-button class="form-submit-button" type="submit" value="delete">Delete</sl-button>
+  </form>
+{% endblock main %}

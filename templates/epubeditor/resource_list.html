@@ -1,0 +1,34 @@
+{% extends "epubeditor/base.html" %}
+
+{% load epub %}
+
+{% block title %}Resources: {{ book.title }}{% endblock %}
+
+{% block main %}
+  <h1>Resources: {{ book.title }}</h1>
+  <ol>
+    {% for item in listing %}
+      <li>
+        <sl-tooltip placement="right">
+          <dl slot="content">
+            {% for key, val in item.attributes.items %}
+              <dt>{{ key }}</dt><dd>{{ val }}</dd>
+            {% endfor %}
+          </dl>
+          <a href="{{ item.href }}">{{ item.href }}</a>
+          <sl-icon name="{{ item.attributes | icon_name }}"></sl-icon>
+        </sl-tooltip>
+      </li>
+    {% endfor %}
+  </ol>
+{% endblock main %}
+
+{% block header_right %}
+  <sl-dropdown>
+    <sl-icon-button slot="trigger" name="three-dots-vertical" label="toggle menu"></sl-icon-button>
+    <sl-menu>
+      <a href="{% url "book_detail" username basename %}"><sl-menu-item>Table of contents</sl-menu-item></a>
+      <a href="{% url "history" username basename %}"><sl-menu-item>History</sl-menu-item></a>
+    </sl-menu>
+  </sl-dropdown>
+{% endblock header_right %}

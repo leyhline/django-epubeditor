@@ -1,0 +1,4 @@
+# development configuration including some optional packages that are not necessary when only running the app
+Django~=5.0.4
+Pillow~=10.3.0
+black~=24.4.1

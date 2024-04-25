@@ -1,0 +1,48 @@
+{% extends "epubeditor/base.html" %}
+
+{% load static %}
+{% load langtag %}
+
+{% block title %}Books{% endblock %}
+
+{% block main %}
+  <div class="book-card-container">
+    {% for book in book_list %}
+      <sl-card class="book-card">
+        <a slot="image" href="{% url "book_detail" book.uploader book.basename %}">
+          {% if book.cover %}
+            <img src="{% url "cover" book.uploader book.basename %}" alt="Cover of book: {{ book.title }}">
+          {% else %}
+            <img src="{% static "epubeditor/images/no-cover-available.jpg" %}" alt="open book placeholder image">
+          {% endif %}
+        </a>
+        <sl-dropdown>
+          <sl-icon-button slot="trigger" name="three-dots-vertical" label="open menu with book options"></sl-icon-button>
+          <sl-menu>
+            <a href="{% url "download" book.uploader book.basename %}"><sl-menu-item>Download</sl-menu-item></a>
+            <a href="{% url "history" book.uploader book.basename %}"><sl-menu-item>History</sl-menu-item></a>
+            <a href="{% url "resources" book.uploader book.basename %}"><sl-menu-item>Resources</sl-menu-item></a>
+            {% if book.role_key == "UL" %}<a href="{% url "delete_book" book.uploader book.basename %}"><sl-menu-item>Delete</sl-menu-item></a>{% endif %}
+          </sl-menu>
+        </sl-dropdown>
+        <sl-tooltip>
+          <div slot="content">
+            <p>
+              {{ book.title }}
+              <br>
+              {{ book.identifier }}
+            </p>
+            <p>
+              Language: {{ book.language | describe_langtag }}
+              <br>
+              Uploader: {{ book.uploader }}
+            </p>
+          </div>
+          <sl-button variant="text" size="large">
+            {{ book.title }}
+          </sl-button>
+        </sl-tooltip>
+      </sl-card>
+    {% endfor %}
+  </div>
+{% endblock main %}

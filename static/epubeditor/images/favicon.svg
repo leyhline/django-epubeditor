@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg version="1.1" viewBox="0 0 75 75" xmlns="http://www.w3.org/2000/svg">
+ <g transform="translate(-15,-30)" stroke="#71717a" stroke-miterlimit="4.6">
+  <g stroke-linecap="square">
+   <rect x="17.5" y="40" width="70" height="55" fill="#71717a" stroke-linejoin="round" stroke-width="5" style="paint-order:normal"/>
+   <rect x="48.499" y="95" width="8.0029" height="3.0029" fill="#71717a" stroke-linejoin="round" stroke-width="5" style="paint-order:normal"/>
+   <path d="m86.5 41c-27.499-4.875-34 3.0029-34 3.0029s-6.5012-8.0029-35-3.0029v54c28.499-5 35 3.0029 35 3.0029s6.5017-7.8779 34-3.0029v-54" fill="#fff" stroke-width="2" style="paint-order:stroke fill markers"/>
+  </g>
+  <path d="m51 42.5h3v50l-1.4997-2.5-1.5003 2.5z" fill="#f97a15" stroke-linecap="square" style="paint-order:stroke fill markers"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">
+   <path d="m21.854 49.019c20.187-3.5418 24.793 2.1271 24.793 2.1271" style="paint-order:stroke fill markers"/>
+   <path d="m21.854 56.019c20.187-3.5418 24.793 2.1271 24.793 2.1271" style="paint-order:stroke fill markers"/>
+   <path d="m21.854 63.019c20.187-3.5418 24.793 2.1271 24.793 2.1271" style="paint-order:stroke fill markers"/>
+   <path d="m21.854 70.019c20.187-3.5418 24.793 2.1271 24.793 2.1271" style="paint-order:stroke fill markers"/>
+   <path d="m21.854 77.019c20.187-3.5418 24.793 2.1271 24.793 2.1271" style="paint-order:stroke fill markers"/>
+   <path d="m21.854 84.019c20.187-3.5418 24.793 2.1271 24.793 2.1271" style="paint-order:stroke fill markers"/>
+  </g>
+  <path d="m55.002 93.131 25.221-24.038-25.221-25.327v4.9362l20.099 20.262-20.099 19.23z" fill="#f97a15" stroke-linecap="square" stroke-width="1.0034" style="paint-order:stroke fill markers"/>
+ </g>
+</svg>

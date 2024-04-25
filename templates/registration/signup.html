@@ -1,0 +1,16 @@
+{% extends "epubeditor/base.html" %}
+
+{% block title %}Signup{% endblock %}
+
+{% block main %}
+	<h1>Signup</h1>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <p class="equation-field">
+      {{ equation | safe }}
+      <input value="" maxlength="5" type="text" name="result" required>
+    </p>
+    <sl-button class="form-submit-button" type="submit" value="signup">Signup</sl-button>
+  </form>
+{% endblock main %}

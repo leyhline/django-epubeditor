@@ -1,0 +1,61 @@
+{
+  "id": "epubeditor",
+  "name": "EPUB Editor",
+  "short_name": "EpubEditor",
+  "description": "EPUB 3 editor with focus on media overlay editing",
+  "start_url": "../../",
+  "display_override": ["window-controls-overlay"],
+  "display": "standalone",
+  "lang": "en",
+  "background_color": "#f97316",
+  "theme_color": "#f97316",
+  "categories": [
+    "books",
+    "education",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "images/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "images/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "images/screenshot-narrow-1.png",
+      "sizes": "390x780",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Book library"
+    },
+    {
+      "src": "images/screenshot-narrow-2.png",
+      "sizes": "390x780",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Edit mode of book's media overlay"
+    },
+    {
+      "src": "images/screenshot-wide-1.png",
+      "sizes": "900x600",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Book library"
+    },
+    {
+      "src": "images/screenshot-wide-2.png",
+      "sizes": "900x600",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Displaying a book chapter"
+    }
+  ]
+}
