@@ -46,30 +46,15 @@
         {% if user.is_authenticated %}
           <sl-dropdown skidding="20">
             <sl-menu>
-              <form method="post" action="{% url "logout" %}">
-                {% csrf_token %}
-                <input type="hidden" name="next" value="{% url "home" %}">
-                <sl-menu-item><sl-button class="form-submit-button" type="submit" value="logout" variant="text">Logout</sl-button></sl-menu-item>
-              </form>
+              <a href="{% url "do_logout" %}"><sl-menu-item>Logout</sl-menu-item></a>
               <a href="{% url "password_change" %}"><sl-menu-item>Change password</sl-menu-item></a>
               <a href="{% url "delete_account" %}"><sl-menu-item>Delete account</sl-menu-item></a>
             </sl-menu>
             <sl-button slot="trigger" variant="text" size="large" caret>{{ user.username }}</sl-button>
           </sl-dropdown>
         {% else %}
-          <form method="post" action="{% url "login" %}">
-            <sl-dialog id="login-dialog" label="Login">
-              {% csrf_token %}
-              {{ login_form }}
-              <input type="hidden" name="next" value="{{ request.path }}">
-              <div slot="footer">
-                <sl-button class="form-submit-button" type="submit" value="login">Login</sl-button>
-                <sl-button variant="text" size="small" href="{% url "password_reset" %}">Reset password</sl-button>
-                <sl-button variant="text" size="small" href="{% url "signup" %}">Signup</sl-button>
-              </div>
-            </sl-dialog>
-          </form>
-          <sl-button id="login-dialog-open" variant="text" size="large">Login</sl-button>
+          <sl-button href="{% url "signup" %}" variant="text" size="large">Signup</sl-button>
+          <sl-button href="{% url "login" %}" variant="text" size="large">Login</sl-button>
         {% endif %}
       </div>
       <div class="nav-drawer-bottom">

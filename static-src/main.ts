@@ -21,9 +21,10 @@ import "@shoelace-style/shoelace/dist/components/menu/menu.js";
 import "@shoelace-style/shoelace/dist/components/menu-item/menu-item.js";
 import "@shoelace-style/shoelace/dist/components/select/select.js";
 import "@shoelace-style/shoelace/dist/components/option/option.js";
+import "@shoelace-style/shoelace/dist/components/split-panel/split-panel.js";
 import { setBasePath } from "@shoelace-style/shoelace/dist/utilities/base-path.js";
 
-import type { SlButton, SlDialog, SlDrawer, SlIconButton } from "@shoelace-style/shoelace";
+import type { SlButton, SlDrawer, SlIconButton } from "@shoelace-style/shoelace";
 
 type ColorModeButtonName = "circle-half" | "moon" | "sun";
 
@@ -66,15 +67,6 @@ function initNavDrawer(): void {
       contentContainer.classList.add("nav-open");
       localStorage.setItem("nav-open", "1");
     }
-  });
-}
-
-function initLoginDialog(): void {
-  const loginDialog = document.getElementById("login-dialog") as SlDialog | null;
-  const loginDialogOpenButton = document.getElementById("login-dialog-open") as SlButton | null;
-  if (!loginDialog || !loginDialogOpenButton) return;
-  loginDialogOpenButton.addEventListener("click", function () {
-    void loginDialog.show();
   });
 }
 
@@ -160,7 +152,6 @@ function initFormSubmitButtons() {
 (function () {
   void registerServiceWorker();
   initNavDrawer();
-  initLoginDialog();
   initColorModeToggle();
   initFormSubmitButtons();
 })();

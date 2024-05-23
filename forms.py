@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 from django.contrib.auth.forms import BaseUserCreationForm
 from django.contrib.auth.models import User
-from django.forms import ModelForm, EmailField
+from django.forms import ModelForm, EmailField, FileField, Form
 
 from epubeditor.models import Book
 
@@ -42,10 +42,8 @@ def equation_to_svg(equation: str) -> str:
     return f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="{w * (len(equation) + 1)}" height="{161.8 / 3}">{svg_equ}</svg>'
 
 
-class UploadBookForm(ModelForm):
-    class Meta:
-        model = Book
-        fields = ["epub"]
+class UploadBookForm(Form):
+    epub = FileField()
 
 
 class DeleteBookForm(ModelForm):

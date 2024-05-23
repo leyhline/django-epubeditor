@@ -102,20 +102,11 @@ nav {
   }
 }
 
-#login-dialog > *[slot="footer"] {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-
-  sl-button {
-    width: 8em;
-  }
-
-  sl-button::part(base) {
-    justify-content: center;
-  }
+.warning-box {
+  background-color: var(--sl-color-danger-100);
+  border-radius: var(--sl-border-radius-large);
+  padding: var(--sl-spacing-medium);
+  margin: var(--sl-spacing-medium);
 }
 
 #error-dialog::part(panel) {
@@ -239,8 +230,6 @@ main {
   font-size: var(--sl-font-size-small);
   text-align: left;
 
-
-
   th, td {
     border: 1px solid var(--sl-color-neutral-300);
     height: 2em;
@@ -270,5 +259,15 @@ main {
   input {
     font-size: var(--sl-font-size-2x-large);
     width: 5ch;
+  }
+}
+
+.text-box {
+  padding: var(--sl-spacing-x-small);
+
+  h3, p {
+    line-height: var(--sl-line-height-denser);
+    margin: 0;
+    margin-block-end: var(--sl-spacing-x-small);
   }
 }

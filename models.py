@@ -131,15 +131,13 @@ def cover_path(instance, filename):
 class Book(models.Model):
     uploader = models.CharField(max_length=50)
     basename = models.SlugField(default="", allow_unicode=True)
-    rootfile_path = models.CharField(max_length=100)
     identifier = models.CharField(max_length=100, help_text="Analogous to dc:identifier in the OPF file")
     title = models.CharField(max_length=100, help_text="Analogous to dc:title in the OPF file")
     language = models.CharField(max_length=100, help_text="Analogous to dc:language in the OPF file")
-    epub = models.FileField(upload_to=epub_path)
-    cover = models.ImageField(upload_to=cover_path, blank=True)
     is_public = models.BooleanField(default=False)
-    epubcheck = models.JSONField()
     users = models.ManyToManyField(User, through="Role")
+    rootfile_path = models.CharField(max_length=100)
+    cover = models.ImageField(upload_to=cover_path, blank=True)
 
     class Meta:
         unique_together = ("uploader", "basename")
@@ -162,20 +160,6 @@ class Book(models.Model):
         rootfile_path = data_path.joinpath(self.rootfile_path)
         self.assert_data_path(rootfile_path)
         return rootfile_path
-
-    def update_after_upload(self, user, basename, check_result):
-        """
-        Call after successful upload. Saves the book and adds the user as uploader.
-        Afterward, call form.save_m2m() to save the many-to-many user relation.
-        """
-        self.uploader = user.username
-        self.basename = basename
-        self.identifier = check_result["publication"]["identifier"]
-        self.title = check_result["publication"]["title"]
-        self.language = check_result["publication"]["language"]
-        self.epubcheck = check_result
-        self.save()
-        self.users.add(user, through_defaults={"role": "UL"})
 
     def set_rootfile_path(self) -> None:
         """
@@ -201,12 +185,6 @@ class Book(models.Model):
             self.save(update_fields=["rootfile_path"])
             return
         raise FileNotFoundError(f"rootfile not found in {data_path}")
-
-    def unzip(self):
-        path = self.get_data_path()
-        path.mkdir(exist_ok=True)
-        with ZipFile(self.epub.file, "r") as zip_ref:
-            zip_ref.extractall(path)
 
     def compress_to_epub(self, folder: str) -> str:
         data_path = self.get_data_path()
@@ -252,8 +230,8 @@ class Book(models.Model):
         base = toc_path.parent.relative_to(rootfile_path.parent).as_posix()
         if base.startswith("."):
             base = base[1:]
-        tree = ET.parse(toc_path)
         namespaces = register_namespaces(XHTML_NAMESPACES)
+        tree = ET.parse(toc_path)
         anchors = tree.findall(".//nav[@epub:type='toc']/.//a", namespaces)
         listing: list[TocListingItem] = []
         for anchor in anchors:
@@ -319,6 +297,35 @@ class Book(models.Model):
         self.assert_data_path(smil_path)
         return smil_path
 
+    def extract_text_from_xhtml(self, item_id: str) -> str:
+        xml_href, _, _ = self.get_xml_hrefs(item_id)
+        path = self.get_rootfile_path().parent.joinpath(xml_href).resolve()
+        self.assert_data_path(path)
+        namespaces = register_namespaces(XHTML_NAMESPACES)
+        tree = ET.parse(path)
+        body = tree.find("body", namespaces=namespaces)
+        paragraph_tags = {"{http://www.w3.org/1999/xhtml}h" + str(i) for i in range(1, 7)}
+        paragraph_tags.add("{http://www.w3.org/1999/xhtml}p")
+        skip_tags = {"{http://www.w3.org/1999/xhtml}rp", "{http://www.w3.org/1999/xhtml}rt"}
+        text_parts: list[str] = []
+
+        def extract_text(elem: ET.Element):
+            for child in elem:
+                if child.tag in skip_tags:
+                    continue
+                if child.tag in paragraph_tags:
+                    text_parts.append("<p>")
+                if child.text:
+                    text_parts.append(child.text)
+                extract_text(child)
+                if child.tail:
+                    text_parts.append(child.tail)
+                if child.tag in paragraph_tags:
+                    text_parts.append("</p>")
+
+        extract_text(body)
+        return "".join(text_parts).strip()
+
     def lock(self, path: Path):
         """Locks a file inside the EPUB directory. The lock is released after 10 seconds."""
         relative_path = path.relative_to(self.get_data_path()).as_posix()
@@ -334,7 +341,7 @@ class Book(models.Model):
             namespaces = register_namespaces(SMIL_NAMESPACES)
             tree = ET.parse(smil_path)
             par = tree.find(".//par[@id='%s']" % new["parId"], namespaces=namespaces)
-            old = extract_par_data(par)
+            old = extract_par_data(par, namespaces)
             audio = par.find("audio", namespaces=namespaces)
             audio.set("clipBegin", new["clipBegin"])
             audio.set("clipEnd", new["clipEnd"])
@@ -411,8 +418,6 @@ def delete_book_data(sender, instance: Book, **kwargs):
     data_path = instance.get_data_path()
     if data_path.exists():
         shutil.rmtree(data_path)
-    if instance.epub.name:
-        Path(instance.epub.path).unlink(missing_ok=True)
     if instance.cover.name:
         Path(instance.cover.path).unlink(missing_ok=True)
 
@@ -447,6 +452,12 @@ class History(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
 
 
+class Epubcheck(models.Model):
+    book = models.ForeignKey(Book, on_delete=models.CASCADE)
+    epubcheck = models.JSONField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+
 class FileLock(models.Model):
     MAX_LOCK_TIME_S: Final = 10
 
@@ -475,3 +486,15 @@ class FileLock(models.Model):
     def unlock(self):
         self.locked = False
         self.save(update_fields=["locked"])
+
+
+class Alignment(models.Model):
+    book = models.ForeignKey(Book, on_delete=models.CASCADE)
+    item_id = models.CharField(max_length=100)
+    speech_recognition = models.JSONField(null=True)
+    alignment = models.JSONField(null=True)
+    min_silence_s = models.FloatField(default=0)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("book", "item_id")

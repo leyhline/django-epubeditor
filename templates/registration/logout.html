@@ -1,0 +1,12 @@
+{% extends "epubeditor/base.html" %}
+
+{% block title %}Logout{% endblock %}
+
+{% block main %}
+  <h1>Logout</h1>
+  <form method="post" action="{% url "logout" %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{% url "home" %}">
+    <sl-button class="form-submit-button" type="submit" value="logout" variant="primary">Logout</sl-button>
+  </form>
+{% endblock main %}

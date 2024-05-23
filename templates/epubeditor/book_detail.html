@@ -8,14 +8,24 @@
 
 {% block main %}
   <h1>{{ book.title }}</h1>
+  {% if editable and book.language == "ja-JP" or editable and book.language == "ja" %}
+    <p>
+      <sl-icon name="ear-fill"></sl-icon>
+      For Japanese language, semi-automatic creation of media overlays is supported.
+    </p>
+  {% endif %}
   <ol>
     {% for item in listing %}
       <li>
         <a href="{{ item.id }}/">{{ item.text }}</a>
         {% if item.media_overlay_id %}
-        <sl-tooltip content="{{ item.media_overlay_id }}" placement="right">
-          <sl-icon-button name="ear" label="media-overlay indicator" href="{% url "resource_data" username basename item.media_overlay_path %}"></sl-icon-button>
-        </sl-tooltip>
+          <sl-tooltip content="{{ item.media_overlay_id }}" placement="right">
+            <sl-icon-button name="ear" label="media-overlay indicator" href="{% url "resource_data" username basename item.media_overlay_path %}"></sl-icon-button>
+          </sl-tooltip>
+        {% elif editable and book.language == "ja-JP" or editable and book.language == "ja" %}
+          <sl-tooltip content="Create new media overlay" placement="right">
+            <sl-icon-button name="ear-fill" label="new media-overlay indicator" href="{% url "align" username basename item.id %}"></sl-icon-button>
+          </sl-tooltip>
         {% endif %}
       </li>
     {% endfor %}

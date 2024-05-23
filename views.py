@@ -1,12 +1,11 @@
 import json
 import shutil
-import subprocess
 from abc import ABCMeta
-from os.path import splitext
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from zipfile import ZipFile
 
+import requests
 from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -17,24 +16,21 @@ from django.http import FileResponse, HttpResponseNotFound, HttpResponseRedirect
 from django.urls import reverse_lazy, reverse
 from django.utils import timezone
 from django.utils.text import slugify
-from django.views.generic.base import ContextMixin, TemplateResponseMixin, RedirectView, TemplateView, View
+from django.views.generic.base import TemplateResponseMixin, RedirectView, TemplateView, View
 from django.views.generic.detail import BaseDetailView
 from django.views.generic.edit import FormView, DeleteView, CreateView
 from django.views.generic.list import ListView
 
+from epubeditor.apps import EpubeditorConfig
 from epubeditor.forms import UploadBookForm, DeleteBookForm, UserCreationForm, build_challenge, equation_to_svg
-from epubeditor.models import Book, RoleKey, ParData, Role, History
+from epubeditor.models import Book, RoleKey, ParData, Role, History, Epubcheck, Alignment
 
 
 class AboutView(TemplateView):
     template_name = "epubeditor/about.html"
 
 
-class LoginFormMixin(ContextMixin):
-    extra_context = {"login_form": AuthenticationForm}
-
-
-class BookListView(LoginFormMixin, ListView):
+class BookListView(ListView):
     model = Book
 
     def get_queryset(self):
@@ -68,7 +64,7 @@ class AbstractBookDetailView(BaseDetailView, metaclass=ABCMeta):
             raise self.model.DoesNotExist("%s matching query does not exist." % self.model.__name__)
 
 
-class BookDetailView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailView):
+class BookDetailView(TemplateResponseMixin, AbstractBookDetailView):
     template_name = "epubeditor/book_detail.html"
 
     def get_context_data(self, **kwargs):
@@ -77,10 +73,15 @@ class BookDetailView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailVi
         context["username"] = self.kwargs["username"]
         context["basename"] = self.kwargs["basename"]
         context["listing"] = book.get_toc_listing()
+        try:
+            raise_for_permissions(book, self.request.user)
+            context["editable"] = True
+        except PermissionDenied:
+            context["editable"] = False
         return context
 
 
-class BookContentView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailView):
+class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
     template_name = "epubeditor/book_content.html"
 
     def get_context_data(self, **kwargs):
@@ -88,42 +89,22 @@ class BookContentView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailV
         book: Book = context["object"]
         item_id = self.kwargs["item_id"]
         context["item_id"] = item_id
-        toc = book.get_toc_listing()
-        toc_length = len(toc)
-        for i, toc_item in enumerate(toc):
-            if toc_item.id != item_id:
-                continue
-            context["title"] = toc_item.text
-            context["prev_item_id"] = toc[i - 1].id if 0 <= i - 1 < toc_length else None
-            context["next_item_id"] = toc[i + 1].id if 0 <= i + 1 < toc_length else None
-            break
+        context["title"], context["prev_item_id"], context["next_item_id"] = read_toc(book, item_id)
         context["username"] = self.kwargs["username"]
         context["basename"] = self.kwargs["basename"]
         try:
-            self._get_editable_book()
+            raise_for_permissions(book, self.request.user)
             context["editable"] = True
         except PermissionDenied:
             context["editable"] = False
         context["xhtml"], context["smil"], context["active_class_name"] = book.get_xml_hrefs(item_id)
         return context
 
-    def _get_editable_book(self) -> Book:
-        book: Book = self.get_object()
-        if self.request.user.is_authenticated:
-            try:
-                role: RoleKey = self.request.user.role_set.get(book=book).role
-                if role not in ["UL", "ED"]:
-                    raise PermissionDenied("Forbidden")
-            except Role.DoesNotExist:
-                raise PermissionDenied("Forbidden")
-            return book
-        else:
-            raise PermissionDenied("Forbidden")
-
     def put(self, request: HttpRequest, *args, **kwargs):
         """Change timing of existing SMIL timestamps"""
         try:
-            book = self._get_editable_book()
+            book: Book = self.get_object()
+            raise_for_permissions(book, request.user)
             item_id = self.kwargs["item_id"]
             data: ParData = json.loads(request.body)
             old, new = book.modify_smil(item_id, data)
@@ -135,10 +116,10 @@ class BookContentView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailV
     def post(self, request: HttpRequest, *args, **kwargs):
         """Create new SMIL timestamps and corresponding span elements"""
         try:
-            book = self._get_editable_book()
+            book: Book = self.get_object()
+            raise_for_permissions(book, request.user)
             item_id = self.kwargs["item_id"]
             data: ParData = json.loads(request.body)
-            print(data)
             new = book.add_to_smil(item_id, data)
             History.objects.create(book=book, user=request.user, trigger="N", type="C", new=new)
             return JsonResponse({"message": "OK", "new": new}, status=201)
@@ -148,7 +129,8 @@ class BookContentView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailV
     def delete(self, request: HttpRequest, *args, **kwargs):
         """Delete existing SMIL timestamps"""
         try:
-            book = self._get_editable_book()
+            book: Book = self.get_object()
+            raise_for_permissions(book, request.user)
             item_id = self.kwargs["item_id"]
             data: ParData = json.loads(request.body)
             old = book.delete_from_smil(item_id, data)
@@ -182,7 +164,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
             return self.form_invalid(form)
 
         try:
-            check_result = call_epubcheck(epub.name, epub.file.name)
+            check_result = call_epubcheck(epub.file.name)
         except AssertionError as e:
             form.add_error("epub", str(e))
             return self.form_invalid(form)
@@ -214,13 +196,22 @@ class UploadBookView(LoginRequiredMixin, FormView):
 
         basename = slugify(check_result["publication"]["title"], allow_unicode=True)
         assert len(basename) > 0, "title slug must not be empty"
-        book: Book = form.save(commit=False)
-        # The order of the method calls is important
-        book.update_after_upload(self.request.user, basename, check_result)
-        book.unzip()
+        book = Book(
+            uploader=self.request.user.username,
+            basename=basename,
+            identifier=check_result["publication"]["identifier"],
+            title=check_result["publication"]["title"],
+            language=check_result["publication"]["language"],
+        )
+        book.save()
+        book.users.add(self.request.user, through_defaults={"role": "UL"})
+        Epubcheck.objects.create(book=book, epubcheck=check_result)
+        path = book.get_data_path()
+        path.mkdir(parents=True, exist_ok=True)
+        with ZipFile(epub.file, "r") as zip_ref:
+            zip_ref.extractall(path)
         book.set_rootfile_path()
         book.set_cover()
-        form.save_m2m()
         return super().form_valid(form)
 
 
@@ -257,7 +248,7 @@ class DeleteBookView(LoginRequiredMixin, DeleteView):
         return super().form_valid(form)
 
 
-class HistoryView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailView):
+class HistoryView(TemplateResponseMixin, AbstractBookDetailView):
     template_name = "epubeditor/history.html"
 
     def get_context_data(self, **kwargs):
@@ -269,7 +260,7 @@ class HistoryView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailView)
         return context
 
 
-class ResourcesView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailView):
+class ResourcesView(TemplateResponseMixin, AbstractBookDetailView):
     template_name = "epubeditor/resource_list.html"
 
     def get_context_data(self, **kwargs):
@@ -281,7 +272,7 @@ class ResourcesView(LoginFormMixin, TemplateResponseMixin, AbstractBookDetailVie
         return context
 
 
-class SignupView(LoginFormMixin, CreateView):
+class SignupView(CreateView):
     MAX_NEW_USERS_PER_HOUR = 10
 
     template_name = "registration/signup.html"
@@ -310,7 +301,7 @@ class SignupView(LoginFormMixin, CreateView):
         request.session["solution"] = self.solution
         return super().get(request, *args, **kwargs)
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request: HttpRequest, *args, **kwargs):
         self.object = None
         solution = request.session.get("solution", None)
         request.session["solution"] = self.solution
@@ -337,8 +328,12 @@ class SignupView(LoginFormMixin, CreateView):
         return nr_new_users >= max_new_users
 
 
-class SignupLimitView(LoginFormMixin, TemplateView):
+class SignupLimitView(TemplateView):
     template_name = "registration/signup_limit.html"
+
+
+class DoLogoutView(LoginRequiredMixin, TemplateView):
+    template_name = "registration/logout.html"
 
 
 class DeleteAccountView(LoginRequiredMixin, DeleteView):
@@ -392,41 +387,90 @@ class EpubDownload(AbstractBookDetailView):
 
 class ServiceWorkerView(View):
     def get(self, request, *args, **kwargs):
-        sw_path = Path(__file__).parent.joinpath("static/epubeditor/sw.js").resolve()
-        response = FileResponse(sw_path.open("rb"), content_type="application/javascript")
+        path = Path(__file__).parent.joinpath("static/epubeditor/sw.js").resolve()
+        response = FileResponse(path.open("rb"), content_type="text/javascript")
         response.headers["Service-Worker-Allowed"] = "/"
         return response
 
 
-def load_epubcheck_json(stdout: str) -> dict[str, Any]:
-    json_start_index = stdout.find("{")
-    json_end_index = stdout.rfind("}")
-    return json.loads(stdout[json_start_index : json_end_index + 1])
+class WorkboxView(View):
+    def get(self, request, *args, **kwargs):
+        path = Path(__file__).parent.joinpath("static/epubeditor").joinpath(kwargs["filename"]).resolve()
+        response = FileResponse(path.open("rb"), content_type="text/javascript")
+        return response
 
 
-def call_epubcheck(filename, filepath) -> dict[str, Any]:
-    """Depends on java and epubcheck.jar. Both must be installed on the system."""
-    assert splitext(filename)[1].lower() == ".epub", "Filename must end with .epub"
-    # TODO use something like firejail to make this at least slightly more secure
-    java_args = [
-        "C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.10.7-hotspot\\bin\\java.exe",
-        "-jar",
-        "epubcheck-5.1.0/epubcheck.jar",
-        filepath,
-        "-j",
-        "-",
-    ]
-    epubcheck_proc = subprocess.run(java_args, capture_output=True, text=True)
-    if epubcheck_proc.returncode != 0:
-        errors = [epubcheck_proc.stderr]
+def call_epubcheck(path: str) -> dict:
+    path = Path(path)
+    assert path.suffix.lower() == ".epub", "Filename must end with .epub"
+    path = path.resolve()
+    response = requests.post(
+        f"http://localhost:{EpubeditorConfig.EPUBCHECK_SERVER_PORT}",
+        data=path.as_posix(),
+        headers={"Content-Type": "text/plain", "Accept": "application/json"},
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+class AlignView(TemplateResponseMixin, AbstractBookDetailView):
+    template_name = "epubeditor/align.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        book: Book = context["object"]
+        raise_for_permissions(book, self.request.user)
+        item_id = self.kwargs["item_id"]
+        context["item_id"] = item_id
+        context["title"], context["prev_item_id"], context["next_item_id"] = read_toc(book, item_id)
+        context["username"] = self.kwargs["username"]
+        context["basename"] = self.kwargs["basename"]
+        context["alignment"] = book.alignment_set.filter(item_id=item_id).order_by("timestamp").last()
+        context["audio_files"] = [
+            resource.href
+            for resource in book.get_resource_listing()
+            if resource.attributes.get("media-type") in ["audio/mpeg", "audio/mp4", "audio/ogg; codecs=opus"]
+        ]
+        context["text"] = book.extract_text_from_xhtml(item_id)
+        return context
+
+    def post(self, request: HttpRequest, *args, **kwargs):
+        book: Book = self.get_object()
+        raise_for_permissions(book, request.user)
+        audio_src: str = request.POST["audiosrc"]
+        path = book.get_rootfile_path().parent.joinpath(audio_src).resolve()
+        book.assert_data_path(path)
+        alignment = Alignment.objects.create(book=book, item_id=self.kwargs["item_id"])
+        response = requests.post(
+            f"http://localhost:{EpubeditorConfig.VOSKHTTP_SERVER_PORT}",
+            data=path.as_posix(),
+            headers={"Content-Type": "text/plain", "Accept": "application/json"},
+        )
+        alignment.speech_recognition = response.json()
+        alignment.save(update_fields=["speech_recognition"])
+        return super().get(request, *args, **kwargs)
+
+
+def raise_for_permissions(book: Book, user: User) -> None:
+    if user.is_authenticated:
         try:
-            check_result = load_epubcheck_json(epubcheck_proc.stdout)
-            messages = [
-                f'{message.get("severity", "ERROR")}: {message.get("message", "Unknown error")}'
-                for message in check_result.get("messages", [])
-            ]
-            errors.extend(messages)
-        except json.JSONDecodeError:
-            pass
-        raise RuntimeError(*errors)
-    return load_epubcheck_json(epubcheck_proc.stdout)
+            role: RoleKey = user.role_set.get(book=book).role
+            if role not in ["UL", "ED"]:
+                raise PermissionDenied("Forbidden")
+        except Role.DoesNotExist:
+            raise PermissionDenied("Forbidden")
+    else:
+        raise PermissionDenied("Forbidden")
+
+
+def read_toc(book: Book, item_id: str) -> tuple[str, str | None, str | None]:
+    toc = book.get_toc_listing()
+    toc_length = len(toc)
+    for i, toc_item in enumerate(toc):
+        if toc_item.id != item_id:
+            continue
+        return (
+            toc_item.text,
+            toc[i - 1].id if 0 <= i - 1 < toc_length else None,
+            toc[i + 1].id if 0 <= i + 1 < toc_length else None,
+        )

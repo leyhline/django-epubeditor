@@ -1,4 +1,6 @@
 node_modules/
+# later, add this to git again
+migrations/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

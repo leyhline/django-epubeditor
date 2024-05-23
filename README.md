@@ -3,31 +3,25 @@
 A django app for viewing and editing [EPUB 3](https://www.w3.org/TR/epub-33/) files.
 Focus is on media overlays. For everything else, there are better tools out there.
 
-## Key points
+## Goals
 
-* Upload EPUBs (only EPUB 3 allowed)
-* Display book contents (no support for style overrides)
-* Play media overlays by click
+* Be a mediocre EPUB viewer
+* Be a mediocre EPUB editor
+* Focus on media overlays
 
-In progress:
-
-* Change media overlay timings
-* Edit XHTML directly
-* Automatic alignment of text and audio
-* Read along functionality and extended playback options if I ever feel the need
+It is only possible to upload valid EPUB 3 files. Editing files should always result in valid EPUB 3 files. It should be impossible to create invalid EPUB 3.
 
 ## Deployment
 
+Either run this locally using the Django development server with SQLite or do a full production deployment.
+
 ### Requirements
 
-* Python 3.12+
-* nginx
-* epubcheck
-* firejail
+* Python 3.12+ (because I want to use `Path.walk` fron [pathlib](https://docs.python.org/3.12/library/pathlib.html#pathlib.Path.walk))
 * Django 5
-* for deployment also Gunicorn and a database (PostgreSQL)
+* for deployment also nginx, Gunicorn and a database (PostgreSQL)
 
-When self-hosting, update the text inside `templates/epubeditor/base.html`. I disabled logging
+When self-hosting, update the text inside `templates/epubeditor/about.html`. I disabled logging
 but if your server configuration is different, this should be written down somewhere. Of course, you are not allowed to change the license.
 
 ## Technical Rationale
@@ -41,3 +35,5 @@ As for the GUI, I would prefer a native application. But EPUB is essentially jus
 Since I do not plan on having many users and I also want to minimize dependencies, I chose a monolithic approach: The Python framework [Django](https://www.djangoproject.com/). It also handles all the authentication stuff which is not really interesting to implement by oneself. At first, I thought I could do everything in JavaScript without the need for a backend, but playing around with different algorithms for speech recognition is much easier without all the browser restrictions. And Python is the de facto standard for prototyping machine learning stuff.
 
 As for the frontend... Unfortunately, I use a complicated build pipeline based on [Rollup](https://rollupjs.org/). Specifically, I use [Lit](https://lit.dev/) for web components since it is easy to just put an EPUB's HTML inside the Shadow DOM of a Lit/Web Component. In practice, it got much more complicated than I initially thought. Now I have a bunch of JavaScript dependencies I never wished for. Well, at least this allows for polyfills if I ever wish to think about browser compatibility.
+
+Note: For the moment, I would like to avoid websockets.

@@ -14,7 +14,5 @@ class BookAdmin(admin.ModelAdmin):
         "identifier",
         "title",
         "language",
-        "epubcheck",
-        "epub",
         "cover",
     ]
