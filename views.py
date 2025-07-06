@@ -1,29 +1,75 @@
 import json
 import shutil
 from abc import ABCMeta
+from datetime import timedelta
+from itertools import chain
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from zipfile import ZipFile
+from typing import Final, Any
+from urllib.request import Request, urlopen
+from zipfile import ZipFile, ZIP_DEFLATED
 
-import requests
+from bitarray import bitarray
 from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
+from django.core.files.uploadhandler import TemporaryFileUploadHandler
 from django.db.models import OuterRef, Subquery, Q
 from django.http import FileResponse, HttpResponseNotFound, HttpResponseRedirect, JsonResponse, HttpRequest
+from django.shortcuts import redirect
 from django.urls import reverse_lazy, reverse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateResponseMixin, RedirectView, TemplateView, View
 from django.views.generic.detail import BaseDetailView
 from django.views.generic.edit import FormView, DeleteView, CreateView
 from django.views.generic.list import ListView
 
+from epubeditor.alignment import find_paths, WordsDict, align_text_to_words, group_intervals, merge_by_silence
 from epubeditor.apps import EpubeditorConfig
+from epubeditor.fields import MaybeInterval, VoskOutput
 from epubeditor.forms import UploadBookForm, DeleteBookForm, UserCreationForm, build_challenge, equation_to_svg
-from epubeditor.models import Book, RoleKey, ParData, Role, History, Epubcheck, Alignment
+from epubeditor.models import (
+    Book,
+    RoleKey,
+    Role,
+    History,
+    Epubcheck,
+    Alignment,
+    AlignmentPath,
+    ParData,
+    HistoryType,
+    BookContentPayload,
+    PayloadOpType,
+    HistoryTrigger,
+    MergePayload,
+    SplitPayload,
+)
+from epubeditor.xhtml import XhtmlTree
+
+OP_MAP: Final[dict[PayloadOpType, HistoryType]] = {
+    "CREATE": "C",
+    "UPDATE": "U",
+    "DELETE": "D",
+    "MERGE": "M",
+    "SPLIT": "S",
+}
+
+
+def post_request(url: str, data: bytes) -> dict[str, Any]:
+    request = Request(
+        url,
+        data=data,
+        headers={"Content-Type": "text/plain", "Accept": "application/json"},
+        method="POST",
+    )
+    with urlopen(request) as response:
+        assert response.status == 200, f"Request to '{url}' failed: {response.status} {response.reason}"
+        return json.loads(response.read())
 
 
 class AboutView(TemplateView):
@@ -81,6 +127,79 @@ class BookDetailView(TemplateResponseMixin, AbstractBookDetailView):
         return context
 
 
+def handle_book_content_op(
+    op: PayloadOpType,
+    trigger: HistoryTrigger,
+    type: HistoryType,
+    user: User,
+    book: Book,
+    item_id: str,
+    data: MergePayload | SplitPayload | ParData,
+) -> JsonResponse:
+    match op:
+        case "UPDATE":
+            new: ParData = data
+            old = book.modify_smil(item_id, new)
+            History.create_init_entry(book, item_id, user, "U")
+            History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, old=old, new=new)
+            response = JsonResponse({"message": "OK", "old": old, "new": new}, status=200)
+        case "CREATE":
+            new = book.add_to_smil(item_id, data)
+            _, text_id = new["textSrc"].split("#")
+            History.create_init_entry(book, item_id, user, "C")
+            History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, new=new)
+            response = JsonResponse({"message": "OK", "new": new, "textId": text_id}, status=201)
+        case "DELETE":
+            old = book.delete_from_smil(item_id, data)
+            History.create_init_entry(book, item_id, user, "D")
+            History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, old=old)
+            response = JsonResponse({"message": "OK", "old": old}, status=200)
+        case "MERGE":
+            text_id, old_xhtml, new_xhtml, old_smil, new_smil = book.merge_elements(item_id, data)
+            History.create_init_entry(book, item_id, user, "M")
+            History.objects.create(
+                book=book,
+                item_id=item_id,
+                user=user,
+                trigger=trigger,
+                type=type,
+                old_xhtml=old_xhtml,
+                new_xhtml=new_xhtml,
+                old_smil=old_smil,
+                new_smil=new_smil,
+            )
+            response = JsonResponse({"message": "OK", "textId": text_id}, status=200)
+        case "SPLIT":
+            text_id, old_xhtml, new_xhtml, old_smil, new_smil = book.split_elements(item_id, data)
+            History.create_init_entry(book, item_id, user, "S")
+            History.objects.create(
+                book=book,
+                item_id=item_id,
+                user=user,
+                trigger=trigger,
+                type=type,
+                old_xhtml=old_xhtml,
+                new_xhtml=new_xhtml,
+                old_smil=old_smil,
+                new_smil=new_smil,
+            )
+            response = JsonResponse({"message": "OK", "textId": text_id}, status=200)
+        case other:
+            response = JsonResponse({"message": f"Operation not supported: '{other}'"}, status=400)
+    if getattr(settings, "SERIALIZE_PAYLOADS", False):
+        write_debug_files_to_disk(zip_filename)
+    return response
+
+
+def write_debug_files_to_disk(zip_filename: str, xhtml_before, xhtml_after, smil_before, smil_after) -> None:
+    zip_path = Path(zip_filename)
+    assert str(zip_path.parent) == ".", f"'{zip_filename}' must be a filename without path components"
+    assert zip_path.suffix == ".zip", f"'{zip_filename}' must be a .zip file with a corresponding extension"
+
+    with ZipFile(zip_path, "a", ZIP_DEFLATED, False) as zipfile:
+        pass
+
+
 class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
     template_name = "epubeditor/book_content.html"
 
@@ -100,42 +219,28 @@ class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
         context["xhtml"], context["smil"], context["active_class_name"] = book.get_xml_hrefs(item_id)
         return context
 
-    def put(self, request: HttpRequest, *args, **kwargs):
-        """Change timing of existing SMIL timestamps"""
+    def post(self, request: HttpRequest, *args, **kwargs) -> JsonResponse:
+        """Restructure XHTML and SMIL by merging or splitting elements"""
         try:
             book: Book = self.get_object()
             raise_for_permissions(book, request.user)
             item_id = self.kwargs["item_id"]
-            data: ParData = json.loads(request.body)
-            old, new = book.modify_smil(item_id, data)
-            History.objects.create(book=book, user=request.user, trigger="N", type="U", old=old, new=new)
-            return JsonResponse({"message": "OK", "old": old, "new": new}, status=200)
-        except (AssertionError, ValueError, PermissionDenied) as e:
-            return JsonResponse({"message": str(e)}, status=400)
-
-    def post(self, request: HttpRequest, *args, **kwargs):
-        """Create new SMIL timestamps and corresponding span elements"""
-        try:
-            book: Book = self.get_object()
-            raise_for_permissions(book, request.user)
-            item_id = self.kwargs["item_id"]
-            data: ParData = json.loads(request.body)
-            new = book.add_to_smil(item_id, data)
-            History.objects.create(book=book, user=request.user, trigger="N", type="C", new=new)
-            return JsonResponse({"message": "OK", "new": new}, status=201)
-        except (AssertionError, ValueError, PermissionDenied) as e:
-            return JsonResponse({"message": str(e)}, status=400)
-
-    def delete(self, request: HttpRequest, *args, **kwargs):
-        """Delete existing SMIL timestamps"""
-        try:
-            book: Book = self.get_object()
-            raise_for_permissions(book, request.user)
-            item_id = self.kwargs["item_id"]
-            data: ParData = json.loads(request.body)
-            old = book.delete_from_smil(item_id, data)
-            History.objects.create(book=book, user=request.user, trigger="N", type="D", old=old)
-            return JsonResponse({"message": "OK", "old": old}, status=200)
+            payload: BookContentPayload = json.loads(request.body)
+            match payload["op"]:
+                case "UNDO":
+                    entry = History.get_last_undoable(book, item_id)
+                    if entry is None:
+                        return JsonResponse({"message": "Nothing to undo in history"}, status=400)
+                    op, type, data = entry.undo()
+                    return handle_book_content_op(op, "U", type, request.user, book, item_id, data)
+                case "REDO":
+                    entry = History.get_last_redoable(book, item_id)
+                    if entry is None:
+                        return JsonResponse({"message": "Nothing to redo in history"}, status=400)
+                    op, type, data = entry.redo()
+                    return handle_book_content_op(op, "R", type, request.user, book, item_id, data)
+                case other:
+                    return handle_book_content_op(other, "N", OP_MAP[other], request.user, book, item_id, payload)
         except (AssertionError, ValueError, PermissionDenied) as e:
             return JsonResponse({"message": str(e)}, status=400)
 
@@ -144,10 +249,22 @@ class HomeView(RedirectView):
     pattern_name = "book_list"
 
 
+@method_decorator(csrf_exempt, name="dispatch")
 class UploadBookView(LoginRequiredMixin, FormView):
     template_name = "epubeditor/upload_book.html"
     form_class = UploadBookForm
     success_url = reverse_lazy("book_list")
+
+    def setup(self, request, *args, **kwargs):
+        # always create temporary files for epub uploads since
+        # epubcheck uses file paths
+        request.upload_handlers = [TemporaryFileUploadHandler(request)]
+        super().setup(request, *args, **kwargs)
+
+    # https://docs.djangoproject.com/en/5.1/topics/http/file-uploads/#modifying-upload-handlers-on-the-fly
+    @method_decorator(csrf_protect)
+    def post(self, request: HttpRequest, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
     def form_valid(self, form):
         epub = form.cleaned_data["epub"]
@@ -206,10 +323,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
         book.save()
         book.users.add(self.request.user, through_defaults={"role": "UL"})
         Epubcheck.objects.create(book=book, epubcheck=check_result)
-        path = book.get_data_path()
-        path.mkdir(parents=True, exist_ok=True)
-        with ZipFile(epub.file, "r") as zip_ref:
-            zip_ref.extractall(path)
+        book.extract(epub.file)
         book.set_rootfile_path()
         book.set_cover()
         return super().form_valid(form)
@@ -256,7 +370,21 @@ class HistoryView(TemplateResponseMixin, AbstractBookDetailView):
         book: Book = context["object"]
         context["username"] = self.kwargs["username"]
         context["basename"] = self.kwargs["basename"]
-        context["listing"] = book.history_set.all()
+        context["listing"] = book.history_set.order_by("-timestamp").all()
+        return context
+
+
+class HistoryItemView(TemplateResponseMixin, AbstractBookDetailView):
+    template_name = "epubeditor/history.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        book: Book = context["object"]
+        context["username"] = self.kwargs["username"]
+        context["basename"] = self.kwargs["basename"]
+        item_id = self.kwargs["item_id"]
+        context["item_id"] = item_id
+        context["listing"] = History.objects.filter(book=book, item_id=item_id).order_by("-timestamp").all()
         return context
 
 
@@ -319,7 +447,7 @@ class SignupView(CreateView):
             return self.form_invalid(form)
 
     def _is_rate_limit_exceeded(self):
-        last_hour = timezone.now() - timezone.timedelta(hours=1)
+        last_hour = timezone.now() - timedelta(hours=1)
         nr_new_users = User.objects.filter(date_joined__gte=last_hour).count()
         try:
             max_new_users = settings.MAX_NEW_USERS_PER_HOUR
@@ -400,21 +528,26 @@ class WorkboxView(View):
         return response
 
 
-def call_epubcheck(path: str) -> dict:
+def call_epubcheck(path: str) -> dict[str, Any]:
     path = Path(path)
     assert path.suffix.lower() == ".epub", "Filename must end with .epub"
     path = path.resolve()
-    response = requests.post(
-        f"http://localhost:{EpubeditorConfig.EPUBCHECK_SERVER_PORT}",
-        data=path.as_posix(),
-        headers={"Content-Type": "text/plain", "Accept": "application/json"},
-    )
-    response.raise_for_status()
-    return response.json()
+    url = f"http://localhost:{EpubeditorConfig.EPUBCHECK_SERVER_PORT}"
+    return post_request(url, path.as_posix().encode())
 
 
 class AlignView(TemplateResponseMixin, AbstractBookDetailView):
     template_name = "epubeditor/align.html"
+
+    def get(self, request: HttpRequest, *args, **kwargs):
+        self.object = self.get_object()
+        context = self.get_context_data(object=self.object)
+        if context["alignment"] is None:
+            return redirect("align_step_1", **kwargs)
+        elif context["selected_alignment_path"] is None:
+            return redirect("align_step_2", **kwargs)
+        else:
+            return redirect("align_step_3", **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -425,30 +558,170 @@ class AlignView(TemplateResponseMixin, AbstractBookDetailView):
         context["title"], context["prev_item_id"], context["next_item_id"] = read_toc(book, item_id)
         context["username"] = self.kwargs["username"]
         context["basename"] = self.kwargs["basename"]
-        context["alignment"] = book.alignment_set.filter(item_id=item_id).order_by("timestamp").last()
         context["audio_files"] = [
             resource.href
             for resource in book.get_resource_listing()
             if resource.attributes.get("media-type") in ["audio/mpeg", "audio/mp4", "audio/ogg; codecs=opus"]
         ]
-        context["text"] = book.extract_text_from_xhtml(item_id)
+        alignment: Alignment | None = book.alignment_set.filter(item_id=item_id).order_by("timestamp").last()
+        if alignment is not None:
+            context["alignment"] = alignment
+            context["text"] = alignment.text
+            words_dict: WordsDict = alignment.words
+            path_set = alignment.alignmentpath_set.order_by("id")
+            paths: list[tuple[bitarray, list[MaybeInterval], str, list[str]]] = []
+            for p in path_set:
+                path_array = bitarray()
+                path_array.frombytes(p.path)
+                path = path_array[: p.path_bit_n]
+                intervals: list[MaybeInterval] = p.intervals
+                text = "".join(line.strip() for line in alignment.text.split("\n") if line.strip())
+                kana = words_dict["recognition_kana"]
+                paths.append((path, intervals, text, kana))
+            context["alignment_paths"] = paths
+            context["selected_alignment_path"] = path_set.filter(selected=True).first()
+            timings = alignment.get_timings()
+            context["timings"] = ",".join(map(str, chain.from_iterable(timings)))
+            audio_hrefs = [
+                resource.href
+                for resource in book.get_resource_listing()
+                if resource.attributes["id"] == alignment.audio_id
+                and resource.attributes.get("media-type") in ["audio/mpeg", "audio/mp4", "audio/ogg; codecs=opus"]
+            ]
+            assert len(audio_hrefs) == 1
+            context["audiosrc"] = audio_hrefs[0]
+        else:
+            context["alignment"] = None
+            context["text"] = book.extract_text_from_xhtml(item_id)
         return context
+
+
+class AlignStep1View(AlignView):
+    template_name = "epubeditor/align_step_1.html"
+
+    def get(self, request: HttpRequest, *args, **kwargs):
+        self.object = self.get_object()
+        context = self.get_context_data(object=self.object)
+        return self.render_to_response(context)
 
     def post(self, request: HttpRequest, *args, **kwargs):
         book: Book = self.get_object()
         raise_for_permissions(book, request.user)
+        item_id = self.kwargs["item_id"]
+        # step 1 should imply that there is no alignment in the database
+        # therefore: try to create a new alignment
         audio_src: str = request.POST["audiosrc"]
         path = book.get_rootfile_path().parent.joinpath(audio_src).resolve()
         book.assert_data_path(path)
-        alignment = Alignment.objects.create(book=book, item_id=self.kwargs["item_id"])
-        response = requests.post(
-            f"http://localhost:{EpubeditorConfig.VOSKHTTP_SERVER_PORT}",
-            data=path.as_posix(),
-            headers={"Content-Type": "text/plain", "Accept": "application/json"},
+        url = f"http://localhost:{EpubeditorConfig.VOSKHTTP_SERVER_PORT}"
+        results: VoskOutput = post_request(url, path.as_posix().encode())
+        audio_ids = [
+            resource.attributes["id"]
+            for resource in book.get_resource_listing()
+            if resource.href == audio_src
+            and resource.attributes.get("media-type") in ["audio/mpeg", "audio/mp4", "audio/ogg; codecs=opus"]
+        ]
+        assert len(audio_ids) == 1
+        audio_id = audio_ids[0]
+        words: list[str] = list(
+            chain.from_iterable((term["text"] for term in monologue["terms"]) for monologue in results["monologues"])
         )
-        alignment.speech_recognition = response.json()
-        alignment.save(update_fields=["speech_recognition"])
-        return super().get(request, *args, **kwargs)
+        xml_root = XhtmlTree(file=book.get_xhtml_path(item_id)).getroot()
+        text = book.extract_text_from_xhtml(item_id)
+        if getattr(settings, "SERIALIZE_PAYLOADS", False):
+            zip_filename = request.POST["zip_filename"]
+            paths, words_dict = find_paths(words, text, zip_filename)
+        else:
+            paths, words_dict = find_paths(words, text)
+        intervals_by_path = [align_text_to_words(path, words_dict) for path in paths]
+        alignment = Alignment.objects.filter(book=book, item_id=item_id).first()
+        if alignment is None:
+            alignment = Alignment.objects.create(
+                book=book,
+                item_id=item_id,
+                audio_id=audio_id,
+                speech_recognition=results,
+                words=words_dict,
+                text=text,
+                source=xml_root,
+            )
+        else:
+            alignment.alignmentpath_set.all().delete()
+            alignment.audio_id = audio_id
+            alignment.speech_recognition = results
+            alignment.words = words_dict
+            alignment.text = text
+            alignment.source = xml_root
+            alignment.save()
+        AlignmentPath.objects.bulk_create(
+            AlignmentPath(
+                alignment=alignment,
+                path=path.tobytes(),
+                path_bit_n=len(path),
+                intervals=intervals,
+            )
+            for path, intervals in zip(paths, intervals_by_path)
+        )
+        return redirect("align_step_2", **kwargs)
+
+
+class AlignStep2View(AlignView):
+    template_name = "epubeditor/align_step_2.html"
+
+    def get(self, request: HttpRequest, *args, **kwargs):
+        self.object = self.get_object()
+        context = self.get_context_data(object=self.object)
+        return self.render_to_response(context)
+
+    def post(self, request: HttpRequest, *args, **kwargs):
+        book: Book = self.get_object()
+        raise_for_permissions(book, request.user)
+        alignment_path_index: int = int(request.POST["alignmentpath"])
+        self.object = book
+        context = self.get_context_data(object=self.object)
+        alignment: Alignment = context["alignment"]
+        paths = alignment.alignmentpath_set.order_by("id")
+        for i, path in enumerate(paths, 1):
+            if i == alignment_path_index:
+                path.selected = True
+            else:
+                path.selected = False
+        paths.bulk_update(paths, ["selected"])
+        return redirect("align_step_3", **kwargs)
+
+
+class AlignStep3View(AlignView):
+    template_name = "epubeditor/align_step_3.html"
+
+    def get(self, request: HttpRequest, *args, **kwargs):
+        self.object = self.get_object()
+        context = self.get_context_data(object=self.object)
+        return self.render_to_response(context)
+
+    def post(self, request: HttpRequest, *args, **kwargs):
+        book: Book = self.get_object()
+        raise_for_permissions(book, request.user)
+        silence_threshold: float = float(request.POST["threshold"])
+        self.object = book
+        context = self.get_context_data(object=self.object)
+        item_id = context["item_id"]
+        alignment_path: AlignmentPath = context["selected_alignment_path"]
+        alignment_path.min_silence_s = silence_threshold
+        alignment_path.save(update_fields=["min_silence_s"])
+        text: str = context["text"]
+        alignment: Alignment = context["alignment"]
+        groups = group_intervals(text, alignment_path.intervals, alignment.get_timings())
+        merged_groups = merge_by_silence(groups, silence_threshold)
+        audio_ids = [
+            resource.attributes["id"]
+            for resource in book.get_resource_listing()
+            if resource.href == context["audiosrc"]
+            and resource.attributes.get("media-type") in ["audio/mpeg", "audio/mp4", "audio/ogg; codecs=opus"]
+        ]
+        assert len(audio_ids) == 1
+        alignment.add_media_overlay(context["item_id"], audio_ids[0], merged_groups)
+        History.create_init_entry(book, item_id, request.user, "A")
+        return redirect("book_content", **kwargs)
 
 
 def raise_for_permissions(book: Book, user: User) -> None:

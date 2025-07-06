@@ -31,7 +31,7 @@
   <sl-dropdown>
     <sl-icon-button slot="trigger" name="three-dots-vertical" label="toggle menu"></sl-icon-button>
     <sl-menu>
-      <a href="{% url "history" username basename %}"><sl-menu-item>History</sl-menu-item></a>
+      <a href="{% url "item_history" username basename item_id %}"><sl-menu-item>History</sl-menu-item></a>
       <a href="{% url "resources" username basename %}"><sl-menu-item>Resources</sl-menu-item></a>
     </sl-menu>
   </sl-dropdown>

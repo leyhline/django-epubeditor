@@ -1,7 +1,5 @@
 {% extends "epubeditor/base.html" %}
 
-{% load align %}
-
 {% block title %}Align: {{ title }} - {{ book.title }}{% endblock %}
 
 {% block header_center %}
@@ -26,8 +24,13 @@
   <h1>Align: {{ title }}</h1>
   <p>Essentially, alignments are created in three steps:</p>
   <ol>
-    <li>Run speech recognition on the audio {% if alignment %}<sl-icon name="check" label="step done"></sl-icon>{% else %}<sl-icon name="arrow-left-short" label="current step"></sl-icon>{% endif %}</li>
-    <li>Alignment of recognition results to original text (here via <a href="https://en.wikipedia.org/wiki/Needleman%E2%80%93Wunsch_algorithm" target="_blank">Needleman–Wunsch algorithm <sl-icon name="box-arrow-up-right" label="external link"></sl-icon></a>) {% if alignment %}<sl-icon name="arrow-left-short" label="current step"></sl-icon>{% endif %}</li>
+    <li>Run speech recognition on the audio</li>
+    <li>Alignment of recognition results to original text (here via <a
+            href="https://en.wikipedia.org/wiki/Needleman%E2%80%93Wunsch_algorithm" target="_blank">Needleman–Wunsch
+      algorithm
+      <sl-icon name="box-arrow-up-right" label="external link"></sl-icon>
+    </a>)
+    </li>
     <li>Manually select a silence threshold to control term size</li>
   </ol>
   <p>
@@ -35,56 +38,5 @@
     Feel free to drop an email if you know something.
   </p>
 
-  {% if alignment %}
-    <h2>2. Alignment</h2>
-    <p>
-      The actual Kanji from speech recognition are not that important.
-      Most likely it is not very accurate since the corresponding language model is small (but fast).
-      What matters are the Kana (generated via <a href="https://taku910.github.io/mecab/" target="_blank">MeCab <sl-icon name="box-arrow-up-right" label="external link"></sl-icon></a>/<a href="https://github.com/polm/fugashi" target="_blank">fugashi <sl-icon name="box-arrow-up-right" label="external link"></sl-icon></a>).
-    </p>
-    <sl-split-panel>
-      <div slot="start" class="text-box">
-        <h3>Speech recognition result</h3>
-        {{ alignment.speech_recognition|concat_text|safe }}
-      </div>
-      <div slot="end" class="text-box">
-        <h3>Original text</h3>
-        {{ text|safe }}
-      </div>
-    </sl-split-panel>
-  {% else %}
-    <h2>1. Speech recognition</h2>
-    <p>
-      Converting audio to text using <a href="https://alphacephei.com/vosk/" target="_blank">Vosk <sl-icon name="box-arrow-up-right" label="external link"></sl-icon></a>
-      with a small language model. This will take a few minutes, depending on the length of the audio file.
-    </p>
-    <p>
-      The audio file must be already present in the uploaded EPUB and listed in its manifest. Maybe, support for uploading audio files will be added later.
-    </p>
-    <form method="post">
-      {% csrf_token %}
-      <p>
-        <label for="audiosrc">Audio source:</label>
-        <sl-select id="audiosrc" name="audiosrc" {% if not audio_files %}disabled{% endif %}>
-          {% for audio_file in audio_files %}
-            <sl-option value="{{ audio_file }}">{{ audio_file }}</sl-option>
-          {% endfor %}
-        </sl-select>
-      </p>
-      <sl-button class="form-submit-button" type="submit" value="align" variant="primary" {% if not audio_files %}disabled{% endif %}>Run speech recognition</sl-button>
-      {% if not audio_files %}
-        <div class="warning-box">
-          <p>
-            There are no audio files in the given EPUB. Uploading audio is not yet supported. Re-upload an EPUB with audio narration to create media overlays.
-            As of <a href="https://www.w3.org/TR/epub-33/#sec-core-media-types" target="_blank">EPUB 3.3</a>, the following media types are supported:
-          </p>
-          <ul>
-            <li><code>audio/mpeg</code> (MP3 audio)</li>
-            <li><code>audio/mp4</code> (AAC LC audio using MP4 container)</li>
-            <li><code>audio/ogg; codecs=opus</code> (OPUS audio using OGG container)</li>
-          </ul>
-        </div>
-      {% endif %}
-    </form>
-  {% endif %}
+  {% block align_main %}{% endblock %}
 {% endblock main %}

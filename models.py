@@ -1,15 +1,15 @@
 import os
-import re
 import shutil
+from itertools import chain
+from os import PathLike
 from pathlib import Path
 from time import sleep
-from typing import NamedTuple, Literal, TypedDict, Final
-from xml.etree import ElementTree as ET
+from typing import Literal, Final, IO, TypedDict, Union
+from xml.etree.ElementTree import Element
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from PIL import Image
 from django.conf import settings
-from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import User
 from django.db import models
 from django.dispatch import receiver
@@ -20,104 +20,59 @@ from epubeditor.epub import (
     get_toc_path,
     iterate_manifest_items,
     CORE_MEDIA_TYPES,
-    iterate_metadata_items,
+    TocListingItem,
+    ResourceListingItem,
+    read_toc,
+    read_xml_hrefs,
+    read_resource_listing,
+    build_smil,
+    read_item_href,
+    add_manifest_item,
+    merge_smil,
+    merge_xhtml,
+    get_text_href_from_smil,
+    split_xhtml,
+    extract_par_data,
+    ParData,
+    SpanData,
+    Timing,
+    split_smil,
+    create_smil,
+    split_element,
+)
+from epubeditor.fields import MaybeIntervalsField, VoskOutput, XhtmlField, SmilField
+from epubeditor.xhtml import (
+    insert_spans,
+    XhtmlTree,
+    SmilTree,
+    ContainerTree,
+    OpfTree,
+    SMIL_NAMESPACES,
+    XHTML_NAMESPACES,
 )
 
 RoleKey = Literal["UL", "ED", "RD"]
-
-RE_CLOCK = re.compile(r"""^(?:(?P<hours>\d+):)??(?:(?P<minutes>\d+):)??(?P<seconds>\d+)(?P<fraction>\.\d+)?$""")
-SMIL_NAMESPACES = {
-    "": "http://www.w3.org/ns/SMIL",
-    "epub": "http://www.idpf.org/2007/ops",
-}
-XHTML_NAMESPACES = {
-    "": "http://www.w3.org/1999/xhtml",
-    "epub": "http://www.idpf.org/2007/ops",
-}
+HistoryType = Literal["A", "C", "U", "D", "M", "S"]
+HistoryTrigger = Literal["I", "N", "U", "R"]
+PayloadOpType = Literal["CREATE", "UPDATE", "DELETE", "MERGE", "SPLIT"]
 
 
-class TocListingItem(NamedTuple):
-    id: str
-    text: str
-    media_overlay_id: str | None
-    media_overlay_path: str | None
-
-
-class ResourceListingItem(NamedTuple):
-    href: str
-    attributes: dict[str, str]
-
-
-class ParData(TypedDict):
+class MergePayload(TypedDict):
     parId: str
-    textSrc: str
-    audioSrc: str
-    clipBegin: str
-    clipEnd: str
+    otherParId: str
 
 
-def clock_value_to_seconds(value: str) -> float:
-    # TODO this doesn't look quite right
-    match = RE_CLOCK.match(value)
-    assert match, f"Invalid clock value '{value}'"
-    hours = match.group("hours")
-    minutes = match.group("minutes")
-    seconds = match.group("seconds")
-    fraction = match.group("fraction")
-    if fraction:
-        fraction = float(fraction)
-    else:
-        fraction = 0
-    if hours:
-        hours = int(hours)
-    else:
-        hours = 0
-    if minutes:
-        minutes = int(minutes)
-    else:
-        minutes = 0
-    seconds = int(seconds)
-    return hours * 3600 + minutes * 60 + seconds + fraction
+class SplitPayload(TypedDict):
+    parId: str
+    index: int
 
 
-def extract_par_data(par: ET.Element, namespaces) -> ParData:
-    text = par.find("text", namespaces=namespaces)
-    audio = par.find("audio", namespaces=namespaces)
-    par_id: str = par.get("id")
-    assert par_id, "missing id attribute for par element"
-    text_src: str = text.get("src")
-    assert text_src, "missing src attribute for text element under id='{par_id}'"
-    audio_src: str = audio.get("src")
-    assert audio_src, "missing src attribute for audio element under id='{par_id}'"
-    clip_begin: str = audio.get("clipBegin")
-    assert clip_begin, "missing clipBegin attribute for audio element under id='{par_id}'"
-    if not RE_CLOCK.match(clip_begin):
-        raise ValueError(f"Invalid clipBegin value '{clip_begin}' for audio element under id='{par_id}'")
-    clip_end: str = audio.get("clipEnd")
-    assert clip_end, "missing clipEnd attribute for audio element under id='{par_id}'"
-    if not RE_CLOCK.match(clip_end):
-        raise ValueError(f"Invalid clipEnd value '{clip_end}' for audio element under id='{par_id}'")
-    return {
-        "parId": par_id,
-        "textSrc": text_src,
-        "audioSrc": audio_src,
-        "clipBegin": clip_begin,
-        "clipEnd": clip_end,
-    }
+class ModifyPayload(ParData):
+    op: Literal["CREATE", "UPDATE", "DELETE"]
 
 
-def build_new_par_id(prev_par_id: str) -> str:
-    last_char = prev_par_id[-1]
-    if last_char.islower() and last_char.isascii() and last_char != "z":
-        return prev_par_id[:-1] + chr(ord(last_char) + 1)
-    else:
-        return prev_par_id + "a"
-
-
-def register_namespaces(namespaces: dict[str, str]) -> dict[str, str]:
-    for prefix, uri in namespaces.items():
-        ET.register_namespace(prefix, uri)
-    return namespaces
+class BookContentPayload(MergePayload, SplitPayload, ParData):
+    op: PayloadOpType
 
 
 def epub_path(instance, filename):
@@ -171,8 +126,9 @@ class Book(models.Model):
         container_path = data_path.joinpath("META-INF").joinpath("container.xml")
         if not container_path.exists():
             raise FileNotFoundError(f"container.xml not found in {data_path}")
-        tree = ET.parse(container_path)
-        rootfiles = tree.find("{urn:oasis:names:tc:opendocument:xmlns:container}rootfiles")
+        tree = ContainerTree(file=container_path)
+        namespaces = tree.register_namespaces()
+        rootfiles = tree.find("rootfiles", namespaces=namespaces)
         for rootfile in rootfiles:
             rootfile_path = rootfile.get("full-path")
             if not rootfile_path:
@@ -189,17 +145,23 @@ class Book(models.Model):
     def compress_to_epub(self, folder: str) -> str:
         data_path = self.get_data_path()
         zip_path = os.path.join(folder, f"{self.basename}.epub")
-        with ZipFile(zip_path, "w", ZIP_DEFLATED, False) as fd:
+        with ZipFile(zip_path, "w", ZIP_DEFLATED, False) as zipfile:
             for root, _, files in data_path.walk():
                 for file in files:
                     path = root.joinpath(file)
-                    fd.write(path, path.relative_to(data_path))
+                    zipfile.write(path, path.relative_to(data_path))
         return zip_path
+
+    def extract(self, epub_file: PathLike | IO) -> None:
+        path = self.get_data_path()
+        path.mkdir(parents=True, exist_ok=True)
+        with ZipFile(epub_file, "r") as zipfile:
+            zipfile.extractall(path)
 
     def set_cover(self) -> None:
         """searches for property 'cover-image' in package.opf; call after unzip"""
         rootfile_path = self.get_rootfile_path()
-        rootfile_tree = ET.parse(rootfile_path)
+        rootfile_tree = OpfTree(file=rootfile_path)
         try:
             image_path = get_cover_image_path(rootfile_tree, rootfile_path)
         except KeyError:
@@ -215,113 +177,86 @@ class Book(models.Model):
 
     def get_toc_listing(self) -> list[TocListingItem]:
         rootfile_path = self.get_rootfile_path()
-        rootfile_tree = ET.parse(rootfile_path)
-        href_id_dict: dict[str, tuple[str, str | None]] = {
-            item.get("href"): (item.get("id"), item.get("media-overlay"))
-            for item in iterate_manifest_items(rootfile_tree, ("application/xhtml+xml",))
-            if item.get("id") and item.get("href")
-        }
-        id_href_dict: dict[str, str] = {
-            item.get("id"): item.get("href")
-            for item in iterate_manifest_items(rootfile_tree, ("application/smil+xml",))
-            if item.get("id") and item.get("href")
-        }
+        rootfile_tree = OpfTree(file=rootfile_path)
         toc_path = get_toc_path(rootfile_tree, rootfile_path)
-        base = toc_path.parent.relative_to(rootfile_path.parent).as_posix()
-        if base.startswith("."):
-            base = base[1:]
-        namespaces = register_namespaces(XHTML_NAMESPACES)
-        tree = ET.parse(toc_path)
-        anchors = tree.findall(".//nav[@epub:type='toc']/.//a", namespaces)
-        listing: list[TocListingItem] = []
-        for anchor in anchors:
-            href = anchor.get("href")
-            if base:
-                href = f"{base}/{href}"
-            if href in href_id_dict:
-                item_id, media_overlay_id = href_id_dict[href]
-                listing.append(
-                    TocListingItem(item_id, anchor.text, media_overlay_id, id_href_dict.get(media_overlay_id))
-                )
-        return listing
+        self.assert_data_path(toc_path)
+        toc_tree = XhtmlTree(file=toc_path)
+        toc_src = toc_path.parent.relative_to(rootfile_path.parent).as_posix()
+        if toc_src.startswith("."):
+            toc_src = toc_src[1:]
+        return read_toc(rootfile_tree, toc_tree, toc_src)
 
-    def get_xml_hrefs(self, item_id) -> tuple[str, str | None, str | None]:
+    def get_xml_hrefs(self, item_id: str) -> tuple[str, str | None, str | None]:
         rootfile_path = self.get_rootfile_path()
-        tree = ET.parse(rootfile_path)
-        id_item_dict = {
-            item.get("id"): item
-            for item in iterate_manifest_items(tree, ("application/xhtml+xml", "application/smil+xml"))
-        }
-        xhtml_item = id_item_dict[item_id]
-        assert xhtml_item.get("media-type") == "application/xhtml+xml", f"incorrect media-type: {xhtml_item}"
-        xhtml_href = xhtml_item.get("href")
-        assert xhtml_href, f"missing href: {xhtml_item}"
-        smil_href: str | None = None
-        smil_id = xhtml_item.get("media-overlay")
-        if smil_id:
-            smil_item = id_item_dict[smil_id]
-            smil_href = smil_item.get("href")
-            assert smil_href
-        active_class_name: str | None = None
-        for meta_item in iterate_metadata_items(tree):
-            tag = meta_item.tag
-            if tag != "{http://www.idpf.org/2007/opf}meta":
-                continue
-            prop = meta_item.get("property")
-            if prop != "media:active-class":
-                continue
-            active_class_name = meta_item.text
-        return xhtml_href, smil_href, active_class_name
+        tree = OpfTree(file=rootfile_path)
+        return read_xml_hrefs(tree, item_id)
 
     def get_resource_listing(self) -> list[ResourceListingItem]:
         rootfile_path = self.get_rootfile_path()
-        tree = ET.parse(rootfile_path)
-        listing = [
-            ResourceListingItem(item.get("href"), item.attrib)
-            for item in iterate_manifest_items(tree, CORE_MEDIA_TYPES)
-        ]
-        return listing
+        tree = OpfTree(file=rootfile_path)
+        return read_resource_listing(tree)
 
     def get_media_type(self, href) -> str | None:
         rootfile_path = self.get_rootfile_path()
-        tree = ET.parse(rootfile_path)
+        tree = OpfTree(file=rootfile_path)
         for item in iterate_manifest_items(tree, CORE_MEDIA_TYPES):
             if item.get("href") == href:
                 return item.get("media-type")
         return None
 
-    def get_smil_path(self, item_id: str) -> Path:
-        _, href, _ = self.get_xml_hrefs(item_id)
+    def get_xhtml_path(self, item_id: str, get_smil_instead=False) -> Path:
+        xhtml_href, smil_href, _ = self.get_xml_hrefs(item_id)
+        if get_smil_instead:
+            if smil_href is None:
+                raise KeyError(f'rootfile item with id="{item_id}" has no media-overlay attribute')
+            href = smil_href
+        else:
+            href = xhtml_href
         rootfile_path = self.get_rootfile_path()
-        smil_path = rootfile_path.parent.joinpath(href)
-        self.assert_data_path(smil_path)
-        return smil_path
+        path = rootfile_path.parent.joinpath(href)
+        self.assert_data_path(path)
+        return path
+
+    def get_xhtml_paths(self, item_id: str) -> tuple[Path, Path | None]:
+        xhtml_href, smil_href, _ = self.get_xml_hrefs(item_id)
+        rootfile_path = self.get_rootfile_path()
+        xhtml_path = rootfile_path.parent.joinpath(xhtml_href)
+        self.assert_data_path(xhtml_path)
+        smil_path: Path | None = None
+        if smil_href is not None:
+            smil_path = rootfile_path.parent.joinpath(smil_href)
+            self.assert_data_path(smil_path)
+        return xhtml_path, smil_path
+
+    def get_item_path(self, item_id: str) -> Path:
+        rootfile_path = self.get_rootfile_path()
+        tree = OpfTree(file=rootfile_path)
+        item_href = read_item_href(tree, item_id)
+        path = rootfile_path.parent.joinpath(item_href)
+        self.assert_data_path(path)
+        return path
 
     def extract_text_from_xhtml(self, item_id: str) -> str:
-        xml_href, _, _ = self.get_xml_hrefs(item_id)
-        path = self.get_rootfile_path().parent.joinpath(xml_href).resolve()
-        self.assert_data_path(path)
-        namespaces = register_namespaces(XHTML_NAMESPACES)
-        tree = ET.parse(path)
+        xhtml_path = self.get_xhtml_path(item_id)
+        tree = XhtmlTree(file=xhtml_path)
+        namespaces = tree.register_namespaces()
         body = tree.find("body", namespaces=namespaces)
         paragraph_tags = {"{http://www.w3.org/1999/xhtml}h" + str(i) for i in range(1, 7)}
         paragraph_tags.add("{http://www.w3.org/1999/xhtml}p")
         skip_tags = {"{http://www.w3.org/1999/xhtml}rp", "{http://www.w3.org/1999/xhtml}rt"}
         text_parts: list[str] = []
 
-        def extract_text(elem: ET.Element):
+        def extract_text(elem: Element):
             for child in elem:
                 if child.tag in skip_tags:
                     continue
-                if child.tag in paragraph_tags:
-                    text_parts.append("<p>")
                 if child.text:
-                    text_parts.append(child.text)
+                    text_parts.append(child.text.strip())
                 extract_text(child)
                 if child.tail:
-                    text_parts.append(child.tail)
+                    text_parts.append(child.tail.strip())
                 if child.tag in paragraph_tags:
-                    text_parts.append("</p>")
+                    text_parts.append("\n")
 
         extract_text(body)
         return "".join(text_parts).strip()
@@ -334,83 +269,105 @@ class Book(models.Model):
         lock.lock()
         return lock
 
-    def modify_smil(self, item_id: str, new: ParData) -> tuple[ParData, ParData]:
-        smil_path = self.get_smil_path(item_id)
+    def modify_smil(self, item_id: str, new: ParData) -> ParData:
+        smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
-            namespaces = register_namespaces(SMIL_NAMESPACES)
-            tree = ET.parse(smil_path)
+            tree = SmilTree(file=smil_path)
+            namespaces = tree.register_namespaces()
             par = tree.find(".//par[@id='%s']" % new["parId"], namespaces=namespaces)
             old = extract_par_data(par, namespaces)
             audio = par.find("audio", namespaces=namespaces)
             audio.set("clipBegin", new["clipBegin"])
             audio.set("clipEnd", new["clipEnd"])
             tree.write(smil_path)
+            return old
         finally:
             lock.unlock()
-        return old, new
 
     def delete_from_smil(self, item_id: str, old: ParData) -> ParData:
-        smil_path = self.get_smil_path(item_id)
+        smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
-            namespaces = register_namespaces(SMIL_NAMESPACES)
-            tree = ET.parse(smil_path)
+            tree = SmilTree(file=smil_path)
+            namespaces = tree.register_namespaces()
             par_parent = tree.find(".//par[@id='%s']/.." % old["parId"], namespaces=namespaces)
             par = par_parent.find("./par[@id='%s']" % old["parId"], namespaces=namespaces)
             par_parent.remove(par)
             tree.write(smil_path)
+            return old
         finally:
             lock.unlock()
-        return old
 
     def add_to_smil(self, item_id: str, new: ParData) -> ParData:
-        smil_path = self.get_smil_path(item_id)
-        new_clip_begin = clock_value_to_seconds(new["clipBegin"])
+        smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
-            namespaces = register_namespaces(SMIL_NAMESPACES)
-            tree = ET.parse(smil_path)
-            par_parents = tree.findall(".//par/..", namespaces=namespaces)
-            assert len(par_parents) > 0, "no par elements found in smil file"
-            pars_dict: dict[ET.Element, list[ParData]] = {
-                parent: [extract_par_data(par, namespaces) for par in parent.findall("./par", namespaces)]
-                for parent in par_parents
-            }
-            audio_src_counter: dict[ET.Element, int] = {parent: 0 for parent in pars_dict.keys()}
-            for parent, par_list in pars_dict.items():
-                for par in par_list:
-                    if new["audioSrc"] == par["audioSrc"]:
-                        audio_src_counter[parent] += 1
-            counter_list = list(audio_src_counter.items())
-            counter_list.sort(key=lambda x: x[1], reverse=True)
-            parent, count = counter_list[0]
-            if count == 0:
-                parent = par_parents[0]
-            par_list = pars_dict[parent]
-            if len(par_list) == 0:
-                raise NotImplementedError("Inserting before the first par is currently not supported")
-            elif len(par_list) > 0 and clock_value_to_seconds(par_list[0]["clipBegin"]) > new_clip_begin:
-                raise NotImplementedError("Inserting before the first par is currently not supported")
-            else:
-                par_index = 1
-                for par_index, par in enumerate(par_list[1:], 1):
-                    if clock_value_to_seconds(par["clipBegin"]) > new_clip_begin:
-                        break
-                prev_par = par_list[par_index - 1]
-                new["parId"] = build_new_par_id(prev_par["parId"])
-                par = ET.Element("par", {"id": new["parId"]})
-                text = ET.Element("text", {"src": new["textSrc"]})
-                par.append(text)
-                audio = ET.Element(
-                    "audio", {"src": new["audioSrc"], "clipBegin": new["clipBegin"], "clipEnd": new["clipEnd"]}
-                )
-                par.append(audio)
-                parent.insert(par_index, par)
+            tree = SmilTree(file=smil_path)
+            new_par_id = create_smil(tree, new)
+            new["parId"] = new_par_id
             tree.write(smil_path)
+            return new
         finally:
             lock.unlock()
-        return new
+
+    def merge_elements(self, item_id: str, payload: MergePayload) -> tuple[str, Element, Element, Element, Element]:
+        xhtml_path = self.get_xhtml_path(item_id, False)
+        smil_path = self.get_xhtml_path(item_id, True)
+        xhtml_lock = self.lock(xhtml_path)
+        smil_lock = self.lock(smil_path)
+        try:
+            smil_tree = SmilTree(file=smil_path)
+            text_src, text_id, other_text_id, old_smil, new_smil = merge_smil(
+                smil_tree, payload["parId"], payload["otherParId"]
+            )
+            assert (smil_path.parent / text_src) == xhtml_path
+            xhtml_tree = XhtmlTree(file=xhtml_path)
+            old_xhtml, new_xhtml = merge_xhtml(xhtml_tree, text_id, other_text_id)
+            smil_tree.write(smil_path)
+            xhtml_tree.write(xhtml_path)
+            return text_id, old_xhtml, new_xhtml, old_smil, new_smil
+        finally:
+            xhtml_lock.unlock()
+            smil_lock.unlock()
+
+    def split_elements(self, item_id: str, payload: SplitPayload) -> tuple[str, Element, Element, Element, Element]:
+        xhtml_path = self.get_xhtml_path(item_id, False)
+        smil_path = self.get_xhtml_path(item_id, True)
+        xhtml_lock = self.lock(xhtml_path)
+        smil_lock = self.lock(smil_path)
+        try:
+            xhtml_tree = XhtmlTree(file=xhtml_path)
+            smil_tree = SmilTree(file=smil_path)
+            text_src, text_id = get_text_href_from_smil(smil_tree, payload["parId"])
+            assert (smil_path.parent / text_src) == xhtml_path
+            new_text_id, text1, text2, old_xhtml, new_xhtml = split_xhtml(xhtml_tree, text_id, payload["index"])
+            old_smil, new_smil = split_smil(
+                smil_tree, payload["parId"], f"{text_src}#{new_text_id}", len(text1), len(text2)
+            )
+            smil_tree.write(smil_path)
+            xhtml_tree.write(xhtml_path)
+            return text_id, old_xhtml, new_xhtml, old_smil, new_smil
+        finally:
+            xhtml_lock.unlock()
+            smil_lock.unlock()
+
+    def add_smil_to_manifest(self, xhtml_path: Path, smil_path: Path) -> None:
+        rootfile_path = self.get_rootfile_path()
+        lock = self.lock(rootfile_path)
+        try:
+            tree = OpfTree(file=rootfile_path)
+            smil_id = smil_path.name
+            smil_href = smil_path.relative_to(rootfile_path.parent).as_posix()
+            add_manifest_item(tree, "item", {"id": smil_id, "href": smil_href, "media-type": "application/smil+xml"})
+            xhtml_href = xhtml_path.relative_to(rootfile_path.parent).as_posix()
+            for item in iterate_manifest_items(tree, ("application/xhtml+xml",)):
+                if item.get("href") == xhtml_href:
+                    item.set("media-overlay", smil_id)
+                    break
+            tree.write(rootfile_path)
+        finally:
+            lock.unlock()
 
 
 @receiver(models.signals.post_delete, sender=Book)
@@ -440,16 +397,128 @@ class Role(models.Model):
 
 
 class History(models.Model):
-    TRIGGER_CHOICES = {"N": "Normal", "U": "Undo", "R": "Redo"}
-    TYPE_CHOICES = {"C": "Create", "U": "Update", "D": "Delete"}
+    TRIGGER_CHOICES: Final[dict[HistoryTrigger, str]] = {"I": "Init", "N": "Normal", "U": "Undo", "R": "Redo"}
+    TYPE_CHOICES: Final[dict[HistoryType, str]] = {
+        "A": "Align",
+        "C": "Create",
+        "U": "Update",
+        "D": "Delete",
+        "M": "Merge",
+        "S": "Split",
+    }
 
     book = models.ForeignKey(Book, on_delete=models.CASCADE)
+    item_id = models.CharField(max_length=100)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     trigger = models.CharField(max_length=1, choices=TRIGGER_CHOICES)
     type = models.CharField(max_length=1, choices=TYPE_CHOICES)
     old = models.JSONField(null=True)
     new = models.JSONField(null=True)
+    old_xhtml = XhtmlField(null=True)
+    new_xhtml = XhtmlField(null=True)
+    old_smil = SmilField(null=True)
+    new_smil = SmilField(null=True)
     timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["book", "item_id"])]
+
+    def undo(self) -> tuple[PayloadOpType, HistoryType, ParData | MergePayload | SplitPayload]:
+        assert self.trigger not in ("N", "R")
+        match self.type:
+            case "A":
+                raise ValueError("Undo of alignment not supported since this would remove the whole media overlay")
+            case "C":
+                data: ParData = self.old
+                return "DELETE", "C", data
+            case "U":
+                data: ParData = self.old
+                return "UPDATE", "U", data
+            case "D":
+                data: ParData = self.new
+                return "CREATE", "D", data
+            case "M":
+                seq_elem: Element = self.new_smil
+                par_elems = seq_elem.findall("par", namespaces=SMIL_NAMESPACES)
+                assert len(par_elems) == 1
+                par_id: str = par_elems[0].get("id")
+                text_elem = par_elems[0].find("text", namespaces=SMIL_NAMESPACES)
+                _, text_id = text_elem.get("src").split()
+                xhtml_elem: Element = self.old_xhtml
+                span_elem = xhtml_elem.find(".//span[@id='%s']/.." % text_id, namespaces=XHTML_NAMESPACES)
+                _, _, counter = split_element(span_elem)
+                data: SplitPayload = {"parId": par_id, "index": counter}
+                return "SPLIT", "M", data
+            case "S":
+                seq_elem: Element = self.new_smil
+                par_elems = seq_elem.findall("par", namespaces=SMIL_NAMESPACES)
+                assert len(par_elems) == 2
+                par1_id: str = par_elems[0].get("id")
+                par2_id: str = par_elems[1].get("id")
+                data: MergePayload = {"parId": par1_id, "otherParId": par2_id}
+                return "MERGE", "S", data
+            case other:
+                raise ValueError(f"Invalid history type: '{other}'")
+
+    def redo(self) -> tuple[PayloadOpType, HistoryType, BookContentPayload]:
+        assert self.trigger == "U"
+        match self.type:
+            case other:
+                raise NotImplementedError()
+
+    @classmethod
+    def get_last_redoable(cls, book: Book, item_id: str) -> Union["History", None]:
+        history = cls.objects.filter(book=book, item_id=item_id).order_by("-timestamp")
+        redo_counter = 0
+        for entry in history:
+            match entry.trigger:
+                case "N" | "I":
+                    return None
+                case "U":
+                    if redo_counter == 0:
+                        return entry
+                    else:
+                        redo_counter -= 1
+                case "R":
+                    redo_counter += 1
+                case other:
+                    raise ValueError(f"Unknown history trigger value: {other}")
+
+    @classmethod
+    def get_last_undoable(cls, book: Book, item_id: str) -> Union["History", None]:
+        history = cls.objects.filter(book=book, item_id=item_id).order_by("-timestamp")
+        undo_counter = 0
+        for entry in history:
+            match entry.trigger:
+                case "N" | "R":
+                    if undo_counter == 0:
+                        return entry
+                    else:
+                        undo_counter -= 1
+                case "U":
+                    undo_counter += 1
+                case "I":
+                    return None
+                case other:
+                    raise ValueError(f"Unknown history trigger value: {other}")
+
+    @classmethod
+    def create_init_entry(cls, book: Book, item_id: str, user: User, type: HistoryType):
+        """Only create init entry in History if there are no existing entries for the given item_id."""
+        entries = cls.objects.filter(book=book, item_id=item_id).all()
+        if len(entries) == 0:
+            xhtml_path, smil_path = book.get_xhtml_paths(item_id)
+            xhtml_root = XhtmlTree(file=xhtml_path).getroot()
+            smil_content = None if smil_path is None else SmilTree(file=smil_path).getroot()
+            History.objects.create(
+                book=book,
+                item_id=item_id,
+                user=user,
+                trigger="I",
+                type=type,
+                new_xhtml=xhtml_root,
+                new_smil=smil_content,
+            )
 
 
 class Epubcheck(models.Model):
@@ -491,10 +560,54 @@ class FileLock(models.Model):
 class Alignment(models.Model):
     book = models.ForeignKey(Book, on_delete=models.CASCADE)
     item_id = models.CharField(max_length=100)
+    audio_id = models.CharField(max_length=100)
     speech_recognition = models.JSONField(null=True)
-    alignment = models.JSONField(null=True)
-    min_silence_s = models.FloatField(default=0)
+    words = models.JSONField()
+    text = models.TextField()
+    source = XhtmlField()
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("book", "item_id")
+
+    def get_timings(self) -> list[Timing]:
+        vosk_output: VoskOutput = self.speech_recognition
+        timings: list[Timing] = []
+        for monologue in vosk_output["monologues"]:
+            for term in monologue["terms"]:
+                timings.append((term["start"], term["end"]))
+        return timings
+
+    def add_media_overlay(self, item_id: str, audio_id: str, groups: list[list[SpanData]]) -> None:
+        xhtml_path = self.book.get_xhtml_path(item_id)
+        audio_path = self.book.get_item_path(audio_id)
+        audio_src = audio_path.relative_to(xhtml_path.parent, walk_up=True).as_posix()
+        lock = self.book.lock(xhtml_path)
+        try:
+            # Update XHTML file
+            namespaces = XhtmlTree.register_namespaces()
+            root = self.source
+            body = root.find("body", namespaces=namespaces)
+            text_list = list(
+                chain.from_iterable(("".join(data["chars"]) for data in paragraph) for paragraph in groups)
+            )
+            insert_spans(body, text_list)
+            xhtml_tree = XhtmlTree(root)
+            # Add SMIL file
+            smil_path = Path(xhtml_path.parent.joinpath(f"{xhtml_path.stem}.smil"))
+            smil_tree = build_smil(groups, xhtml_path.name, audio_src)
+            # Write files
+            xhtml_tree.write(xhtml_path)
+            smil_tree.write(smil_path)
+            self.book.add_smil_to_manifest(xhtml_path, smil_path)
+        finally:
+            lock.unlock()
+
+
+class AlignmentPath(models.Model):
+    alignment = models.ForeignKey(Alignment, on_delete=models.CASCADE)
+    path = models.BinaryField()
+    path_bit_n = models.BigIntegerField()
+    min_silence_s = models.FloatField(default=0.0)
+    intervals = MaybeIntervalsField()
+    selected = models.BooleanField(default=False)

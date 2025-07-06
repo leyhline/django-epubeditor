@@ -1,0 +1,47 @@
+{% extends "epubeditor/align.html" %}
+
+{% load align %}
+
+{% block align_main %}
+  <h2>2. Alignment</h2>
+  <p>
+    The actual Kanji from speech recognition are not that important.
+    Most likely it is not very accurate since the corresponding language model is small (but fast).
+    What matters are the Kana (generated via <a href="https://taku910.github.io/mecab/" target="_blank">MeCab
+    <sl-icon name="box-arrow-up-right" label="external link"></sl-icon>
+  </a>/<a href="https://github.com/polm/fugashi" target="_blank">fugashi
+    <sl-icon name="box-arrow-up-right" label="external link"></sl-icon>
+  </a>).
+  </p>
+
+  <p>
+    There should be at least one option here to choose from (or to simply accept). These are representations of
+    the ‘paths’ the algorithm found through the alignment grid. All of them represent a global optimum so what
+    is important now it the review by human eyes. It is also okay to choose at random.
+  </p>
+
+  <form method="post" class="alignment-form">
+    {% csrf_token %}
+    <sl-radio-group id="alignmentpath" name="alignmentpath" class="alignment-paths" value="1" label="Global alignment paths:">
+      {% for alignment_path in alignment_paths %}
+        <sl-radio value="{{ forloop.counter }}">
+          {{ alignment_path|align_lines|safe }}
+        </sl-radio>
+      {% endfor %}
+    </sl-radio-group>
+    <sl-button class="form-submit-button" type="submit" value="align" variant="primary"
+               {% if not alignment_paths %}disabled{% endif %}>Choose alignment
+    </sl-button>
+  </form>
+
+  <sl-split-panel>
+    <div slot="start" class="text-box">
+      <h3>Speech recognition result</h3>
+      {{ alignment.speech_recognition|concat_vosk_text|safe }}
+    </div>
+    <div slot="end" class="text-box">
+      <h3>Original text</h3>
+      {{ text|concat_text|safe }}
+    </div>
+  </sl-split-panel>
+{% endblock align_main %}

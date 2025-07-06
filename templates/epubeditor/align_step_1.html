@@ -1,0 +1,51 @@
+{% extends "epubeditor/align.html" %}
+
+{% load align %}
+
+{% block align_main %}
+  <h2>1. Speech recognition</h2>
+  <p>
+    Converting audio to text using <a href="https://alphacephei.com/vosk/" target="_blank">Vosk
+    <sl-icon name="box-arrow-up-right" label="external link"></sl-icon>
+  </a>
+    with a small language model. This will take a few minutes, depending on the length of the audio file.
+  </p>
+  <p>
+    The audio file must be already present in the uploaded EPUB and listed in its manifest. Maybe, support for uploading
+    audio files will be added later.
+  </p>
+  <form method="post" class="alignment-form">
+    {% csrf_token %}
+    <p>
+      <label for="audiosrc">Audio source:</label>
+      <sl-select id="audiosrc" name="audiosrc" {% if not audio_files %}disabled{% endif %}>
+        {% for audio_file in audio_files %}
+          <sl-option value="{{ audio_file }}">{{ audio_file }}</sl-option>
+        {% endfor %}
+      </sl-select>
+    </p>
+    <sl-button class="form-submit-button" type="submit" value="align" variant="primary"
+               {% if not audio_files %}disabled{% endif %}>Run speech recognition
+    </sl-button>
+    {% if not audio_files %}
+      <div class="warning-box">
+        <p>
+          There are no audio files in the given EPUB. Uploading audio is not yet supported. Re-upload an EPUB with audio
+          narration to create media overlays.
+          As of <a href="https://www.w3.org/TR/epub-33/#sec-core-media-types" target="_blank">EPUB 3.3</a>, the
+          following media types are supported:
+        </p>
+        <ul>
+          <li><code>audio/mpeg</code> (MP3 audio)</li>
+          <li><code>audio/mp4</code> (AAC LC audio using MP4 container)</li>
+          <li><code>audio/ogg; codecs=opus</code> (OPUS audio using OGG container)</li>
+        </ul>
+      </div>
+    {% endif %}
+  </form>
+
+  <div class="text-box">
+    <h3>Original text</h3>
+    {{ text|concat_text|safe }}
+  </div>
+{% endblock align_main %}

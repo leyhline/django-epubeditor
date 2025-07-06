@@ -1,0 +1,21 @@
+{% extends "epubeditor/align.html" %}
+
+{% load align %}
+
+{% block align_main %}
+  <h2>3. Thresholding</h2>
+
+  <form method="post" class="alignment-form">
+    {% csrf_token %}
+    <sl-range id="threshold" name="threshold" value="{{ selected_alignment_path.min_silence_s }}" min="0" max="2"
+              step="0.01"
+              label="Silence threshold (in seconds)"></sl-range>
+    <sl-button class="form-submit-button" type="submit" value="align" variant="primary">Apply alignment</sl-button>
+  </form>
+
+  <div class="text-box">
+    <align-threshold audiosrc="{% url "resource_data" username basename audiosrc %}"
+                     initialsilence="{{ selected_alignment_path.min_silence_s }}" text="{{ text }}"
+                     intervals="{{ selected_alignment_path.intervals|intervals_to_csv }}" timings="{{ timings }}"></align-threshold>
+  </div>
+{% endblock align_main %}
