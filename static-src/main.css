@@ -1,3 +1,10 @@
+@font-face {
+  font-family: "Noto Serif JP";
+  font-style: normal;
+  font-weight: 400;
+  src: url(assets/NotoSerifJP-Regular.woff2) format("woff2");
+}
+
 :root {
   --min-body-width: 350px;
   --nav-width: 250px;
@@ -148,6 +155,10 @@ main {
   transition: margin-left var(--sl-transition-medium);
 }
 
+epub-edit {
+  height: calc(100vh - 100px - env(titlebar-area-height, var(--sl-font-size-3x-large)))
+}
+
 @media only screen and (min-width: 600px) {
   main.nav-open {
     margin-left: var(--nav-width);
@@ -229,6 +240,7 @@ main {
   font-family: 'Consolas', 'Menlo', 'DejaVu Sans Mono', 'Bitstream Vera Sans Mono', monospace;
   font-size: var(--sl-font-size-small);
   text-align: left;
+  width: 100%;
 
   th, td {
     border: 1px solid var(--sl-color-neutral-300);
@@ -245,7 +257,6 @@ main {
 
   .history-cell-index {
     text-align: right;
-    padding: 0 1em;
   }
 }
 
@@ -263,6 +274,8 @@ main {
 }
 
 .text-box {
+  font-family: "Noto Serif JP", serif;
+
   padding: var(--sl-spacing-x-small);
 
   h3, p {

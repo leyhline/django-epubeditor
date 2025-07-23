@@ -22,12 +22,12 @@ urlpatterns = [
     path("delete/<username>/<basename>/", views.DeleteBookView.as_view(), name="delete_book"),
     path("download/<username>/<basename>/", views.EpubDownload.as_view(), name="download"),
     path("history/<username>/<basename>/", views.HistoryView.as_view(), name="history"),
+    path("history/<username>/<basename>/<item_id>/", views.HistoryItemView.as_view(), name="item_history"),
     path("resources/<username>/<basename>/", views.ResourcesView.as_view(), name="resources"),
     path(
         "resources/<username>/<basename>/<path:path>",
         no_append_slash(views.ResourceData.as_view()),
         name="resource_data",
     ),
-    path("align/<username>/<basename>/<item_id>/", views.AlignView.as_view(), name="align"),
     path("about/", views.AboutView.as_view(), name="about"),
 ]

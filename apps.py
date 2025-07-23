@@ -6,4 +6,3 @@ class EpubeditorConfig(AppConfig):
     name = "epubeditor"
 
     EPUBCHECK_SERVER_PORT = 8003
-    VOSKHTTP_SERVER_PORT = 8004

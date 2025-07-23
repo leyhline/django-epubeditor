@@ -36,4 +36,12 @@ Since I do not plan on having many users and I also want to minimize dependencie
 
 As for the frontend... Unfortunately, I use a complicated build pipeline based on [Rollup](https://rollupjs.org/). Specifically, I use [Lit](https://lit.dev/) for web components since it is easy to just put an EPUB's HTML inside the Shadow DOM of a Lit/Web Component. In practice, it got much more complicated than I initially thought. Now I have a bunch of JavaScript dependencies I never wished for. Well, at least this allows for polyfills if I ever wish to think about browser compatibility.
 
+## TODO
+
+Since there are long-running tasks, some adjustments will be of advantage:
+
+* use asyncio / async views
+* use background workers ([DEP-14](https://github.com/django/deps/blob/main/accepted/0014-background-workers.rst)) when they are available
+* use daphne or uvicorn in production
+
 Note: For the moment, I would like to avoid websockets.

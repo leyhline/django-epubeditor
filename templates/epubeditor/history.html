@@ -1,16 +1,27 @@
 {% extends "epubeditor/base.html" %}
 
+{% load xml %}
+
 {% block title %}History: {{ book.title }}{% endblock %}
 
 {% block main %}
   <h1>History: {{ book.title }}</h1>
   <p>Changes on the current book's media overlay (i.e. its SMIL timings) from <em>old</em> (top row) to <em>new</em> (bottom row).</p>
   <table class="history-table">
-    {% for item in listing reversed %}
-      <tr><td rowspan="3" class="history-cell-index">{{ forloop.revcounter }}</td><th scope="col">parId</th><th scope="col">textSrc</th><th scope="col">audioSrc</th><th scope="col">clipBegin</th><th scope="col">clipEnd</th></tr>
-      <tr><td>{{ item.old.parId }}</td><td>{{ item.old.textSrc }}</td><td>{{ item.old.audioSrc }}</td><td>{{ item.old.clipBegin }}</td><td>{{ item.old.clipEnd }}</td></tr>
-      <tr><td>{{ item.new.parId }}</td><td>{{ item.new.textSrc }}</td><td>{{ item.new.audioSrc }}</td><td>{{ item.new.clipBegin }}</td><td>{{ item.new.clipEnd }}</td></tr>
-      <tr class="history-table-row-borderless"><td></td><td colspan="5">{{ item.get_trigger_display }}/{{ item.get_type_display }} - {{ item.timestamp }} by {{ item.user.username | default:"Unknown" }}</td></tr>
+    {% for item in listing %}
+      {% if item.trigger == "I" %}
+        <tr><td class="history-cell-index">{{ forloop.revcounter }}</td><td colspan="5" style="height: 12em; padding: 0"><iframe sandbox="allow-same-origin" style="width: 100%; height: 100%; border: 0" title="Initial XHTML for epub item: {{ item.item_id }}" srcdoc="{% xhtml_with_base_to_string item.new_xhtml item.item_id %}"></iframe></td></tr>
+      {% else %}
+        {% if item.type == "M" or item.type == "S" %}
+          <tr><td rowspan="2" class="history-cell-index">{{ forloop.revcounter }}</td><td colspan="5" style="white-space: pre-line">{{ item.old_xhtml | to_text }}</td></tr>
+          <tr><td colspan="5" style="white-space: pre-line">{{ item.new_xhtml | to_text }}</td></tr>
+        {% else %}
+          <tr><td rowspan="3" class="history-cell-index">{{ forloop.revcounter }}</td><th scope="col">parId</th><th scope="col">textSrc</th><th scope="col">audioSrc</th><th scope="col">clipBegin</th><th scope="col">clipEnd</th></tr>
+          <tr><td>{{ item.old.parId }}</td><td>{{ item.old.textSrc }}</td><td>{{ item.old.audioSrc }}</td><td>{{ item.old.clipBegin }}</td><td>{{ item.old.clipEnd }}</td></tr>
+          <tr><td>{{ item.new.parId }}</td><td>{{ item.new.textSrc }}</td><td>{{ item.new.audioSrc }}</td><td>{{ item.new.clipBegin }}</td><td>{{ item.new.clipEnd }}</td></tr>
+        {% endif %}
+      {% endif %}
+      <tr class="history-table-row-borderless"><td></td><td colspan="5">{{ item.item_id }} - {{ item.get_trigger_display }}/{{ item.get_type_display }} - {{ item.timestamp }} by {{ item.user.username | default:"Unknown" }}</td></tr>
     {% endfor %}
   </table>
 {% endblock main %}
@@ -19,7 +30,11 @@
   <sl-dropdown>
     <sl-icon-button slot="trigger" name="three-dots-vertical" label="toggle menu"></sl-icon-button>
     <sl-menu>
-      <a href="{% url "book_detail" username basename %}"><sl-menu-item>Table of contents</sl-menu-item></a>
+      {% if item_id %}
+        <a href="{% url "book_content" username basename item_id %}"><sl-menu-item>Chapter</sl-menu-item></a>
+      {% else %}
+        <a href="{% url "book_detail" username basename %}"><sl-menu-item>Table of contents</sl-menu-item></a>
+      {% endif %}
       <a href="{% url "resources" username basename %}"><sl-menu-item>Resources</sl-menu-item></a>
     </sl-menu>
   </sl-dropdown>
