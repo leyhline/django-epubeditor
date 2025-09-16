@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from epub import build_new_id
+from .epub import build_new_id
 
 
 class TestCase_build_new_id(TestCase):

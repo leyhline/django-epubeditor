@@ -1,12 +1,13 @@
+from difflib import unified_diff
 import json
 import shutil
+import re
 from abc import ABCMeta
 from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Final, Any
+from typing import Final, Any, Iterator
 from urllib.request import Request, urlopen
-from zipfile import ZipFile, ZIP_DEFLATED
 
 from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
@@ -30,6 +31,7 @@ from epubeditor.apps import EpubeditorConfig
 from epubeditor.forms import UploadBookForm, DeleteBookForm, UserCreationForm, build_challenge, equation_to_svg
 from epubeditor.models import (
     Book,
+    DebugInfo,
     RoleKey,
     Role,
     History,
@@ -50,6 +52,7 @@ OP_MAP: Final[dict[PayloadOpType, HistoryType]] = {
     "MERGE": "M",
     "SPLIT": "S",
 }
+RE_DEBUG_FILE_NAME = re.compile(r"(?P<id>\d{4})_(?P<trigger>[INUR])(?P<type>[CUDMS])_(?P<filename>.+)\.diff")
 
 
 def post_request(url: str, data: bytes) -> dict[str, Any]:
@@ -128,26 +131,30 @@ def handle_book_content_op(
     item_id: str,
     data: MergePayload | SplitPayload | ParData,
 ) -> JsonResponse:
+    xhtml_debug_info: DebugInfo | None = None
+    smil_debug_info: DebugInfo | None = None
     match op:
         case "UPDATE":
             new: ParData = data
-            old = book.modify_smil(item_id, new)
+            old, smil_debug_info = book.modify_smil(item_id, new)
             History.create_init_entry(book, item_id, user, "U")
             History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, old=old, new=new)
             response = JsonResponse({"message": "OK", "old": old, "new": new}, status=200)
         case "CREATE":
-            new = book.add_to_smil(item_id, data)
+            new, smil_debug_info = book.add_to_smil(item_id, data)
             _, text_id = new["textSrc"].split("#")
             History.create_init_entry(book, item_id, user, "C")
             History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, new=new)
             response = JsonResponse({"message": "OK", "new": new, "textId": text_id}, status=201)
         case "DELETE":
-            old = book.delete_from_smil(item_id, data)
+            old, smil_debug_info = book.delete_from_smil(item_id, data)
             History.create_init_entry(book, item_id, user, "D")
             History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, old=old)
             response = JsonResponse({"message": "OK", "old": old}, status=200)
         case "MERGE":
-            text_id, old_xhtml, new_xhtml, old_smil, new_smil = book.merge_elements(item_id, data)
+            text_id, old_xhtml, new_xhtml, old_smil, new_smil, xhtml_debug_info, smil_debug_info = book.merge_elements(
+                item_id, data
+            )
             History.create_init_entry(book, item_id, user, "M")
             History.objects.create(
                 book=book,
@@ -162,7 +169,9 @@ def handle_book_content_op(
             )
             response = JsonResponse({"message": "OK", "textId": text_id}, status=200)
         case "SPLIT":
-            text_id, old_xhtml, new_xhtml, old_smil, new_smil = book.split_elements(item_id, data)
+            text_id, old_xhtml, new_xhtml, old_smil, new_smil, xhtml_debug_info, smil_debug_info = book.split_elements(
+                item_id, data
+            )
             History.create_init_entry(book, item_id, user, "S")
             History.objects.create(
                 book=book,
@@ -179,17 +188,51 @@ def handle_book_content_op(
         case other:
             response = JsonResponse({"message": f"Operation not supported: '{other}'"}, status=400)
     if getattr(settings, "SERIALIZE_PAYLOADS", False):
-        write_debug_files_to_disk(zip_filename)
+        write_debug_files_to_disk(book, trigger, type, xhtml_debug_info, smil_debug_info)
     return response
 
 
-def write_debug_files_to_disk(zip_filename: str, xhtml_before, xhtml_after, smil_before, smil_after) -> None:
-    zip_path = Path(zip_filename)
-    assert str(zip_path.parent) == ".", f"'{zip_filename}' must be a filename without path components"
-    assert zip_path.suffix == ".zip", f"'{zip_filename}' must be a .zip file with a corresponding extension"
+def write_debug_files_to_disk(
+    book: Book,
+    trigger: HistoryTrigger,
+    type: HistoryType,
+    xhtml_debug_info: DebugInfo | None,
+    smil_debug_info: DebugInfo | None,
+) -> None:
+    data_path = book.get_data_path()
+    folder_children: list[re.Match[str]] = list(
+        filter(
+            lambda x: x is not None,
+            (RE_DEBUG_FILE_NAME.match(child.name) for child in data_path.iterdir() if child.is_file()),
+        )
+    )
+    folder_children.sort(key=lambda match: match.group("id"))
+    if len(folder_children) == 0:
+        new_id = 1
+    else:
+        new_id = int(folder_children[-1].group("id")) + 1
+    if xhtml_debug_info is not None:
+        filename = f"{new_id:04d}_{trigger}{type}_{xhtml_debug_info.path.name}.diff"
+        diff = create_unified_diff(xhtml_debug_info, data_path)
+        with data_path.joinpath(filename).open("w", encoding="utf-8") as f:
+            f.writelines(diff)
+    if smil_debug_info is not None:
+        filename = f"{new_id:04d}_{trigger}{type}_{smil_debug_info.path.name}.diff"
+        diff = create_unified_diff(smil_debug_info, data_path)
+        with data_path.joinpath(filename).open("w", encoding="utf-8") as f:
+            f.writelines(diff)
 
-    with ZipFile(zip_path, "a", ZIP_DEFLATED, False) as zipfile:
-        pass
+
+def create_unified_diff(debug_info: DebugInfo, data_path: Path) -> Iterator[str]:
+    rel_path = debug_info.path.relative_to(data_path).as_posix()
+    return unified_diff(
+        debug_info.old_content,
+        debug_info.new_content,
+        f"a/{rel_path}",
+        f"b/{rel_path}",
+        debug_info.old_modified.strftime("%Y-%m-%d %H:%M:%S.%f000 %z"),
+        debug_info.new_modified.strftime("%Y-%m-%d %H:%M:%S.%f000 %z"),
+    )
 
 
 class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
@@ -520,8 +563,8 @@ class WorkboxView(View):
         return response
 
 
-def call_epubcheck(path: str) -> dict[str, Any]:
-    path = Path(path)
+def call_epubcheck(path_str: str) -> dict[str, Any]:
+    path = Path(path_str)
     assert path.suffix.lower() == ".epub", "Filename must end with .epub"
     path = path.resolve()
     url = f"http://localhost:{EpubeditorConfig.EPUBCHECK_SERVER_PORT}"

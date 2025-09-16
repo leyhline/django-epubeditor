@@ -1,11 +1,12 @@
+from datetime import datetime, timezone as tz
 import os
 import shutil
 from os import PathLike
 from pathlib import Path
 from time import sleep
-from typing import Literal, Final, IO, TypedDict, Union
+from typing import Literal, Final, IO, NamedTuple, TypedDict, Union
 from xml.etree.ElementTree import Element
-from zipfile import ZipFile, ZIP_DEFLATED
+from zipfile import ZIP_STORED, ZipFile, ZIP_DEFLATED
 
 from PIL import Image
 from django.conf import settings
@@ -15,6 +16,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from epubeditor.epub import (
+    COMPRESSABLE_CORE_MEDIA_TYPES,
     get_cover_image_path,
     get_toc_path,
     iterate_manifest_items,
@@ -48,6 +50,14 @@ RoleKey = Literal["UL", "ED", "RD"]
 HistoryType = Literal["C", "U", "D", "M", "S"]
 HistoryTrigger = Literal["I", "N", "U", "R"]
 PayloadOpType = Literal["CREATE", "UPDATE", "DELETE", "MERGE", "SPLIT"]
+
+
+class DebugInfo(NamedTuple):
+    path: Path
+    old_content: list[str]
+    new_content: list[str]
+    old_modified: datetime
+    new_modified: datetime
 
 
 class MergePayload(TypedDict):
@@ -138,11 +148,28 @@ class Book(models.Model):
     def compress_to_epub(self, folder: str) -> str:
         data_path = self.get_data_path()
         zip_path = os.path.join(folder, f"{self.basename}.epub")
+        meta_inf_files: Final = {
+            "container.xml",
+            "signatures.xml",
+            "encryption.xml",
+            "metadata.xml",
+            "rights.xml",
+            "manifest.xml",
+        }
         with ZipFile(zip_path, "w", ZIP_DEFLATED, False) as zipfile:
-            for root, _, files in data_path.walk():
-                for file in files:
-                    path = root.joinpath(file)
+            zipfile.write(data_path.joinpath("mimetype"), "mimetype")
+            for child in data_path.joinpath("META-INF").iterdir():
+                if child.is_file() and child.name in meta_inf_files:
+                    zipfile.write(child, child.relative_to(data_path))
+            rootfile_path = self.get_rootfile_path()
+            zipfile.write(rootfile_path, rootfile_path.relative_to(data_path))
+            for resource in self.get_resource_listing():
+                path = rootfile_path.parent.joinpath(resource.href)
+                # TODO smil postprocessing for timings
+                if resource.attributes.get("media-type") in COMPRESSABLE_CORE_MEDIA_TYPES:
                     zipfile.write(path, path.relative_to(data_path))
+                else:
+                    zipfile.write(path, path.relative_to(data_path), ZIP_STORED)
         return zip_path
 
     def extract(self, epub_file: PathLike | IO) -> None:
@@ -229,10 +256,11 @@ class Book(models.Model):
         lock.lock()
         return lock
 
-    def modify_smil(self, item_id: str, new: ParData) -> ParData:
+    def modify_smil(self, item_id: str, new: ParData) -> tuple[ParData, DebugInfo]:
         smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
+            old_content, old_modified = read_file_for_debug(smil_path)
             tree = SmilTree(file=smil_path)
             namespaces = tree.register_namespaces()
             par = tree.find(".//par[@id='%s']" % new["parId"], namespaces=namespaces)
@@ -241,73 +269,110 @@ class Book(models.Model):
             audio.set("clipBegin", new["clipBegin"])
             audio.set("clipEnd", new["clipEnd"])
             tree.write(smil_path)
-            return old
+            new_content, new_modified = read_file_for_debug(smil_path)
+            return old, DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)
         finally:
             lock.unlock()
 
-    def delete_from_smil(self, item_id: str, old: ParData) -> ParData:
+    def delete_from_smil(self, item_id: str, old: ParData) -> tuple[ParData, DebugInfo]:
         smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
+            old_content, old_modified = read_file_for_debug(smil_path)
             tree = SmilTree(file=smil_path)
             namespaces = tree.register_namespaces()
             par_parent = tree.find(".//par[@id='%s']/.." % old["parId"], namespaces=namespaces)
             par = par_parent.find("./par[@id='%s']" % old["parId"], namespaces=namespaces)
             par_parent.remove(par)
             tree.write(smil_path)
-            return old
+            new_content, new_modified = read_file_for_debug(smil_path)
+            return old, DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)
         finally:
             lock.unlock()
 
-    def add_to_smil(self, item_id: str, new: ParData) -> ParData:
+    def add_to_smil(self, item_id: str, new: ParData) -> tuple[ParData, DebugInfo]:
         smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
+            old_content, old_modified = read_file_for_debug(smil_path)
             tree = SmilTree(file=smil_path)
             new_par_id = create_smil(tree, new)
             new["parId"] = new_par_id
             tree.write(smil_path)
-            return new
+            new_content, new_modified = read_file_for_debug(smil_path)
+            return new, DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)
         finally:
             lock.unlock()
 
-    def merge_elements(self, item_id: str, payload: MergePayload) -> tuple[str, Element, Element, Element, Element]:
+    def merge_elements(
+        self, item_id: str, payload: MergePayload
+    ) -> tuple[str, Element, Element, Element, Element, DebugInfo, DebugInfo]:
         xhtml_path = self.get_xhtml_path(item_id, False)
         smil_path = self.get_xhtml_path(item_id, True)
         xhtml_lock = self.lock(xhtml_path)
         smil_lock = self.lock(smil_path)
         try:
+            old_smil_content, old_smil_modified = read_file_for_debug(smil_path)
             smil_tree = SmilTree(file=smil_path)
             text_src, text_id, other_text_id, old_smil, new_smil = merge_smil(
                 smil_tree, payload["parId"], payload["otherParId"]
             )
             assert (smil_path.parent / text_src) == xhtml_path
+            old_xhtml_content, old_xhtml_modified = read_file_for_debug(xhtml_path)
             xhtml_tree = XhtmlTree(file=xhtml_path)
             old_xhtml, new_xhtml = merge_xhtml(xhtml_tree, text_id, other_text_id)
             smil_tree.write(smil_path)
+            new_smil_content, new_smil_modified = read_file_for_debug(smil_path)
+            smil_debug_info = DebugInfo(
+                smil_path, old_smil_content, new_smil_content, old_smil_modified, new_smil_modified
+            )
             xhtml_tree.write(xhtml_path)
-            return text_id, old_xhtml, new_xhtml, old_smil, new_smil
+            new_xhtml_content, new_xhtml_modified = read_file_for_debug(xhtml_path)
+            xhtml_debug_info = DebugInfo(
+                xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified
+            )
+            return (
+                text_id,
+                old_xhtml,
+                new_xhtml,
+                old_smil,
+                new_smil,
+                xhtml_debug_info,
+                smil_debug_info,
+            )
         finally:
             xhtml_lock.unlock()
             smil_lock.unlock()
 
-    def split_elements(self, item_id: str, payload: SplitPayload) -> tuple[str, Element, Element, Element, Element]:
+    def split_elements(
+        self, item_id: str, payload: SplitPayload
+    ) -> tuple[str, Element, Element, Element, Element, DebugInfo, DebugInfo]:
         xhtml_path = self.get_xhtml_path(item_id, False)
         smil_path = self.get_xhtml_path(item_id, True)
         xhtml_lock = self.lock(xhtml_path)
         smil_lock = self.lock(smil_path)
         try:
-            xhtml_tree = XhtmlTree(file=xhtml_path)
+            old_smil_content, old_smil_modified = read_file_for_debug(smil_path)
             smil_tree = SmilTree(file=smil_path)
             text_src, text_id = get_text_href_from_smil(smil_tree, payload["parId"])
             assert (smil_path.parent / text_src) == xhtml_path
+            old_xhtml_content, old_xhtml_modified = read_file_for_debug(xhtml_path)
+            xhtml_tree = XhtmlTree(file=xhtml_path)
             new_text_id, text1, text2, old_xhtml, new_xhtml = split_xhtml(xhtml_tree, text_id, payload["index"])
             old_smil, new_smil = split_smil(
                 smil_tree, payload["parId"], f"{text_src}#{new_text_id}", len(text1), len(text2)
             )
             smil_tree.write(smil_path)
+            new_smil_content, new_smil_modified = read_file_for_debug(smil_path)
+            smil_debug_info = DebugInfo(
+                smil_path, old_smil_content, new_smil_content, old_smil_modified, new_smil_modified
+            )
             xhtml_tree.write(xhtml_path)
-            return text_id, old_xhtml, new_xhtml, old_smil, new_smil
+            new_xhtml_content, new_xhtml_modified = read_file_for_debug(xhtml_path)
+            xhtml_debug_info = DebugInfo(
+                xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified
+            )
+            return text_id, old_xhtml, new_xhtml, old_smil, new_smil, xhtml_debug_info, smil_debug_info
         finally:
             xhtml_lock.unlock()
             smil_lock.unlock()
@@ -495,3 +560,10 @@ class FileLock(models.Model):
     def unlock(self):
         self.locked = False
         self.save(update_fields=["locked"])
+
+
+def read_file_for_debug(path: Path) -> tuple[list[str], datetime]:
+    modified = datetime.fromtimestamp(path.stat(follow_symlinks=False).st_mtime, tz.utc)
+    with path.open("r", encoding="utf-8") as f:
+        content = [line for line in f]
+    return content, modified

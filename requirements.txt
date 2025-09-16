@@ -1,13 +1,6 @@
-# basic dependencies for running the app locally using Django's development server and SQLite
-Django~=5.2.3
-pillow~=11.2.1
-fugashi[unidic-lite]~=1.5.1
-bitarray~=3.4.3
+# Basic dependencies for running the app locally using Django's development server and SQLite.
+# For password hashing with argon2 in Django's top-level settings.py, see
+# https://docs.djangoproject.com/en/5.2/topics/auth/passwords/#using-argon2-with-django
+django[argon2]~=5.2.6
+pillow~=11.3.0
 defusedxml~=0.7.1
-
-# for password hashing in Django's top-level settings.py, see
-# https://docs.djangoproject.com/en/5.0/topics/auth/passwords/#using-argon2-with-django
-argon2-cffi~=25.1.0
-
-# for automatic code formatting during development
-black~=25.1.0

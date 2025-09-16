@@ -19,7 +19,6 @@ Either run this locally using the Django development server with SQLite or do a 
 
 * Python 3.12+ (because I want to use `Path.walk` fron [pathlib](https://docs.python.org/3.12/library/pathlib.html#pathlib.Path.walk))
 * Django 5
-* for deployment also nginx, Gunicorn and a database (PostgreSQL)
 
 When self-hosting, update the text inside `templates/epubeditor/about.html`. I disabled logging
 but if your server configuration is different, this should be written down somewhere. Of course, you are not allowed to change the license.

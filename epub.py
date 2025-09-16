@@ -52,6 +52,18 @@ CORE_MEDIA_TYPES = frozenset(
         "application/smil+xml",
     ]
 )
+COMPRESSABLE_CORE_MEDIA_TYPES = frozenset(
+    [
+        "image/svg+xml",
+        "text/css",
+        "application/xhtml+xml",
+        "application/smil+xml",
+        "font/ttf",
+        "application/font-sfnt",
+        "font/otf",
+        "application/vnd.ms-opentype",
+    ]
+)
 
 
 class ResourceListingItem(NamedTuple):
@@ -117,6 +129,14 @@ def clock_value_to_seconds(value: str) -> float:
         minutes = 0
     seconds = int(seconds)
     return hours * 3600 + minutes * 60 + seconds + fraction
+
+
+def seconds_to_clock_value(sec: float) -> str:
+    hours = str(int(sec // 3600)).zfill(2)
+    minutes = str(int((sec % 3600) // 60)).zfill(2)
+    seconds = str(int(sec % 60)).zfill(2)
+    fraction = f"{sec % 1:.3f}"[1:]
+    return f"{hours}:{minutes}:{seconds}{fraction}"
 
 
 def extract_par_data(par: Element, namespaces) -> ParData:
@@ -468,7 +488,9 @@ def split_xhtml(tree: XhtmlTree, text_id: str, split_index: int) -> tuple[str, s
     return new_text_id, before_text, after_text, old_parent, new_parent
 
 
-def split_smil(tree: SmilTree, par_id: str, new_text_src: str, text1_length, text2_length) -> tuple[Element, Element]:
+def split_smil(
+    tree: SmilTree, par_id: str, new_text_src: str, text1_length: int, text2_length: int
+) -> tuple[Element, Element]:
     namespaces = tree.register_namespaces()
     parent = tree.find(".//par[@id='%s']/.." % par_id, namespaces=namespaces)
     child_elem: Element | None = None
@@ -497,7 +519,7 @@ def split_smil(tree: SmilTree, par_id: str, new_text_src: str, text1_length, tex
         if elem_id == child_id:
             do_take_next_id = True
 
-    split_time = f"{begin+diff_s:.3f}"
+    split_time = seconds_to_clock_value(begin + diff_s)
     new_par_id = build_new_id(child_id, next_elem_id)
     new_par_elem = Element("par", {"id": new_par_id})
     new_text = SubElement(new_par_elem, "text", {"src": new_text_src})

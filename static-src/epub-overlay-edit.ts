@@ -110,11 +110,11 @@ export class EpubOverlayEdit extends LitElement {
   private validateInput(event: SlInputEvent): void {
     this.revertButton.disabled = false
     const inputElem = event.target as SlInput
-    const match = RE_CLOCK.exec(inputElem.value)
-    if (match) {
+    const isNumber = inputElem.value && !isNaN(Number(inputElem.value))
+    if (isNumber) {
       inputElem.setCustomValidity("")
     } else {
-      inputElem.setCustomValidity("Must be a SMIL clock value")
+      inputElem.setCustomValidity("Must be a number")
     }
     this.commitButton.disabled = !inputElem.reportValidity()
     this.renderWaveform()
@@ -241,8 +241,8 @@ export class EpubOverlayEdit extends LitElement {
     if (!parData || !csrftoken) return
     const payload: ModifyPayload = {
       ...parData,
-      clipBegin: this.beginInput.value,
-      clipEnd: this.endInput.value,
+      clipBegin: secondsToClockValue(Number(this.beginInput.value)),
+      clipEnd: secondsToClockValue(Number(this.endInput.value)),
       op: "UPDATE",
     }
     this.disableButtons()
@@ -251,8 +251,8 @@ export class EpubOverlayEdit extends LitElement {
         if (response.ok) {
           const data = (await response.json()) as ModifyResponse
           notify(`Updated: ${data.message}`, "primary", "info-circle", 5000)
-          this.beginInput.value = data.new!.clipBegin
-          this.endInput.value = data.new!.clipEnd
+          this.beginInput.value = clockValueToSeconds(data.new!.clipBegin).toString()
+          this.endInput.value = clockValueToSeconds(data.new!.clipEnd).toString()
           parData.clipBegin = data.new!.clipBegin
           parData.clipEnd = data.new!.clipEnd
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
@@ -273,8 +273,8 @@ export class EpubOverlayEdit extends LitElement {
   private revert(): void {
     const srcId = this.elems?.selected.getAttribute("id") ?? ""
     const parData = this.idParMap?.get(srcId)
-    this.beginInput.value = parData?.clipBegin ?? ""
-    this.endInput.value = parData?.clipEnd ?? ""
+    this.beginInput.value = clockValueToSeconds(parData?.clipBegin ?? "").toString()
+    this.endInput.value = clockValueToSeconds(parData?.clipEnd ?? "").toString()
     this.revertButton.disabled = true
     this.commitButton.disabled = true
   }
@@ -442,7 +442,7 @@ export class EpubOverlayEdit extends LitElement {
       prevInterval,
       [begin, end],
       nextInterval,
-      this.elems.selected.textContent ?? "",
+      removeRuby(this.elems.selected),
       this.audioContext.sampleRate,
     )
   }
@@ -554,8 +554,8 @@ export class EpubOverlayEdit extends LitElement {
       const isDisabled = !this.elems
       const srcId = this.elems.selected.getAttribute("id") ?? ""
       const parData = this.idParMap?.get(srcId)
-      const begin = parData?.clipBegin ?? ""
-      const end = parData?.clipEnd ?? ""
+      const begin = clockValueToSeconds(parData?.clipBegin ?? "")
+      const end = clockValueToSeconds(parData?.clipEnd ?? "")
       return html`<canvas id="waveform-target" height="50"></canvas>
         <div class="epub-overlay-edit-container">
           <sl-icon-button
@@ -626,10 +626,10 @@ export function clockValueToSeconds(clockValue: string): number {
 }
 
 function secondsToClockValue(sec: number): string {
-  const hours = Math.floor(sec / 3600)
-  const minutes = Math.floor((sec % 3600) / 60)
-  const seconds = Math.floor(sec % 60)
-  const fraction = (sec % 1).toFixed(3).slice(1)
+  const hours = Math.floor(sec / 3600).toString().padStart(2, "0")
+  const minutes = Math.floor((sec % 3600) / 60).toString().padStart(2, "0")
+  const seconds = Math.floor(sec % 60).toString().padStart(2, "0")
+  const fraction = (sec % 1).toFixed(3).slice(1).toString()
   return `${hours}:${minutes}:${seconds}${fraction}`
 }
 
@@ -875,6 +875,18 @@ async function callEndpoint(
     mode: "same-origin",
     body: JSON.stringify(payload),
   })
+}
+
+function removeRuby(elem: Element): string {
+  const textParts: string[] = []
+  for (const childNode of elem.childNodes) {
+    if (childNode.nodeType == Node.TEXT_NODE && childNode.textContent) {
+      textParts.push(childNode.nodeValue ?? "")
+    } else if (childNode.nodeType == Node.ELEMENT_NODE && !["RP", "RT"].includes(childNode.nodeName)) {
+      textParts.push(removeRuby(childNode as Element))
+    }
+  }
+  return textParts.join("")
 }
 
 // @license-end
