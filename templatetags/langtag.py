@@ -22,8 +22,7 @@ class LangTag(TypedDict):
 def parse_registry() -> list[LangTag]:
     registry: list[LangTag] = []
     with REGISTRY_PATH.open("r", encoding="utf-8") as f:
-        contents = f.read()
-    entries = [entry for entry in contents.replace("\n  ", " ").split("%%") if len(entry.splitlines()) > 1]
+        entries = [entry for entry in f.read().replace("\n  ", " ").split("%%") if len(entry.splitlines()) > 1]
     for entry in entries:
         tag_type = None
         subtag = None

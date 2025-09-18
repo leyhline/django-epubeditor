@@ -68,67 +68,65 @@ export default {
       modifyURLPrefix: {
         "": "/static/epubeditor/",
       },
-      sourcemap: false,
-      // runtimeCaching: [
-      //   {
-      //     handler: "CacheFirst",
-      //     method: "GET",
-      //     urlPattern: ({url, sameOrigin}) => {
-      //       const parts = url.pathname.split('/');
-      //       const isCachableUrl = (
-      //         parts.includes('books') ||
-      //         parts.includes('covers') ||
-      //         parts.includes('history') ||
-      //         parts.includes('resources') ||
-      //         parts.includes('about')
-      //       )
-      //       return sameOrigin && isCachableUrl && !(
-      //         url.pathname.toLowerCase().endsWith('.smil') ||
-      //         url.pathname.toLowerCase().endsWith('.xml') ||
-      //         url.pathname.toLowerCase().endsWith('.opf') ||
-      //         url.pathname.toLowerCase().endsWith('/')
-      //       )
-      //     },
-      //     options: {
-      //       cacheName: 'epubeditor-cache-first',
-      //       cacheableResponse: {
-      //         statuses: [0, 200]
-      //       },
-      //       expiration: {
-      //         maxAgeSeconds: 60 * 60 * 24 * 7,
-      //       }
-      //     }
-      //   },
-      //   {
-      //     handler: "NetworkFirst",
-      //     method: "GET",
-      //     urlPattern: ({url, sameOrigin}) => {
-      //       const parts = url.pathname.split('/');
-      //       const isCachableUrl = (
-      //         parts.includes('books') ||
-      //         parts.includes('covers') ||
-      //         parts.includes('history') ||
-      //         parts.includes('resources') ||
-      //         parts.includes('about')
-      //       )
-      //       return sameOrigin && isCachableUrl && (
-      //         url.pathname.toLowerCase().endsWith('.smil') ||
-      //         url.pathname.toLowerCase().endsWith('.xml') ||
-      //         url.pathname.toLowerCase().endsWith('.opf') ||
-      //         url.pathname.toLowerCase().endsWith('/')
-      //       )
-      //     },
-      //     options: {
-      //       cacheName: 'epubeditor-network-first',
-      //       cacheableResponse: {
-      //         statuses: [0, 200]
-      //       },
-      //       expiration: {
-      //         maxAgeSeconds: 60 * 60 * 24 * 7,
-      //       }
-      //     }
-      //   }
-      // ]
+      sourcemap: true,
+      runtimeCaching: [
+        {
+          handler: "CacheFirst",
+          method: "GET",
+          urlPattern: ({url, sameOrigin}) => {
+            const parts = url.pathname.split('/');
+            const isCachableUrl = (
+              parts.includes('books') ||
+              parts.includes('covers') ||
+              parts.includes('history') ||
+              parts.includes('resources') ||
+              parts.includes('about')
+            )
+            const pathname = url.pathname.toLowerCase()
+            return sameOrigin && isCachableUrl && !(
+              pathname.endsWith('.smil') ||
+              pathname.endsWith('.xhtml')
+            )
+          },
+          options: {
+            cacheName: 'epubeditor-cache-first',
+            cacheableResponse: {
+              statuses: [0, 200]
+            },
+            expiration: {
+              maxAgeSeconds: 60 * 60 * 24 * 7,
+            }
+          }
+        },
+        {
+          handler: "NetworkFirst",
+          method: "GET",
+          urlPattern: ({url, sameOrigin}) => {
+            const parts = url.pathname.split('/');
+            const isCachableUrl = (
+              parts.includes('books') ||
+              parts.includes('covers') ||
+              parts.includes('history') ||
+              parts.includes('resources') ||
+              parts.includes('about')
+            )
+            const pathname = url.pathname.toLowerCase()
+            return sameOrigin && isCachableUrl && (
+              pathname.endsWith('.smil') ||
+              pathname.endsWith('.xhtml')
+            )
+          },
+          options: {
+            cacheName: 'epubeditor-network-first',
+            cacheableResponse: {
+              statuses: [0, 200]
+            },
+            expiration: {
+              maxAgeSeconds: 60 * 60 * 24 * 7,
+            }
+          }
+        }
+      ]
     }),
   ],
 }

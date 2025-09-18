@@ -125,10 +125,10 @@ export class EpubOverlayEdit extends LitElement {
     const prevPar = this.idParMap?.get(prevParId)
     if (!prevPar) return
     const inputElem = event.target as SlInput
-    const seconds = clockValueToSeconds(inputElem.value)
+    const seconds = Number(inputElem.value)
     const prevEndSeconds = clockValueToSeconds(prevPar.clipEnd)
     if (seconds < prevEndSeconds) {
-      inputElem.value = prevPar.clipEnd
+      inputElem.value = clockValueToSeconds(prevPar.clipEnd).toString()
     }
   }
 
@@ -137,10 +137,10 @@ export class EpubOverlayEdit extends LitElement {
     const nextPar = this.idParMap?.get(nextParId)
     if (!nextPar) return
     const inputElem = event.target as SlInput
-    const seconds = clockValueToSeconds(inputElem.value)
+    const seconds = Number(inputElem.value)
     const nextBeginSeconds = clockValueToSeconds(nextPar.clipBegin)
     if (seconds > nextBeginSeconds) {
-      inputElem.value = nextPar.clipBegin
+      inputElem.value = clockValueToSeconds(nextPar.clipBegin).toString()
     }
   }
 
@@ -277,6 +277,7 @@ export class EpubOverlayEdit extends LitElement {
     this.endInput.value = clockValueToSeconds(parData?.clipEnd ?? "").toString()
     this.revertButton.disabled = true
     this.commitButton.disabled = true
+    this.renderWaveform()
   }
 
   private delete(): void {
