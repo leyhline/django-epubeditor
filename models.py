@@ -35,6 +35,7 @@ from epubeditor.epub import (
     split_smil,
     create_smil,
     split_element,
+    adjust_smil_timings,
 )
 from epubeditor.fields import XhtmlField, SmilField
 from epubeditor.xhtml import (
@@ -145,7 +146,7 @@ class Book(models.Model):
             return
         raise FileNotFoundError(f"rootfile not found in {data_path}")
 
-    def compress_to_epub(self, folder: str) -> str:
+    def compress_to_epub(self, folder: str, for_reading_system: bool) -> str:
         data_path = self.get_data_path()
         zip_path = os.path.join(folder, f"{self.basename}.epub")
         meta_inf_files: Final = {
@@ -165,8 +166,12 @@ class Book(models.Model):
             zipfile.write(rootfile_path, rootfile_path.relative_to(data_path))
             for resource in self.get_resource_listing():
                 path = rootfile_path.parent.joinpath(resource.href)
-                # TODO smil postprocessing for timings
-                if resource.attributes.get("media-type") in COMPRESSABLE_CORE_MEDIA_TYPES:
+                media_type = resource.attributes.get("media-type")
+                if for_reading_system and media_type == "application/smil+xml":
+                    smil_tree = SmilTree(file=path)
+                    adjust_smil_timings(smil_tree)
+                    zipfile.writestr(path.relative_to(data_path).as_posix(), smil_tree.tostring())
+                elif media_type in COMPRESSABLE_CORE_MEDIA_TYPES:
                     zipfile.write(path, path.relative_to(data_path))
                 else:
                     zipfile.write(path, path.relative_to(data_path), ZIP_STORED)

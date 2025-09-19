@@ -537,8 +537,9 @@ class EpubDownload(AbstractBookDetailView):
     def get(self, request, *args, **kwargs):
         book: Book = self.get_object()
         tempdir = TemporaryDirectory()
+        for_reading_system = "for_reading_system" in request.GET
         try:
-            zip_path = book.compress_to_epub(tempdir.name)
+            zip_path = book.compress_to_epub(tempdir.name, for_reading_system)
             response = FileResponse(open(zip_path, "rb"), content_type="application/epub+zip")
             # Let Django remove/cleanup temporary directory after response handling
             response._resource_closers.append(tempdir.cleanup)

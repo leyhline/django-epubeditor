@@ -28,13 +28,21 @@ class AbstractTree(ElementTree, metaclass=ABCMeta):
     def get_doctype() -> str:
         return ""
 
-    def write(self, file: PathLike[str]) -> None:
+    def _tobuffer(self) -> StringIO:
         self.register_namespaces()
         buffer = StringIO()
         super().write(buffer, encoding="unicode", xml_declaration=False, method="xml")
+        return buffer
+
+    def write(self, file: PathLike[str]) -> None:
+        buffer = self._tobuffer()
         with open(file, "w", encoding="utf-8") as f:
             f.write(f'<?xml version="1.0" encoding="utf-8"?>\n{self.get_doctype()}')
             f.write(buffer.getvalue())
+
+    def tostring(self) -> str:
+        buffer = self._tobuffer()
+        return buffer.getvalue()
 
     def parse(self, source: PathLike[str]) -> None:
         self.register_namespaces()

@@ -575,3 +575,21 @@ def create_smil(tree: SmilTree, new: ParData) -> str:
         par.append(audio)
         parent.insert(par_index, par)
     return new_par_id
+
+
+def adjust_smil_timings(tree: SmilTree) -> None:
+    """
+    Playback on reading devices is strange if the timestamps from the smil
+    only match the phrases. They have to be extended for continuous playback
+    on reading systems.
+    """
+    namespaces = tree.register_namespaces()
+    for seq in tree.iterfind(".//seq", namespaces=namespaces):
+        pars = seq.iterfind("par", namespaces=namespaces)
+        for par1, par2 in pairwise(pars):
+            audio1 = par1.find("audio", namespaces=namespaces)
+            end1 = audio1.get("clipEnd")
+            audio2 = par2.find("audio", namespaces=namespaces)
+            begin2 = audio2.get("clipBegin")
+            if end1 is not None and begin2 is not None:
+                audio1.set("clipEnd", begin2)
