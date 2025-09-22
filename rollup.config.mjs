@@ -85,7 +85,8 @@ export default {
             const pathname = url.pathname.toLowerCase()
             return sameOrigin && isCachableUrl && !(
               pathname.endsWith('.smil') ||
-              pathname.endsWith('.xhtml')
+              pathname.endsWith('.xhtml') ||
+              pathname.endsWith('/')
             )
           },
           options: {
@@ -113,7 +114,8 @@ export default {
             const pathname = url.pathname.toLowerCase()
             return sameOrigin && isCachableUrl && (
               pathname.endsWith('.smil') ||
-              pathname.endsWith('.xhtml')
+              pathname.endsWith('.xhtml') ||
+              pathname.endsWith('/')
             )
           },
           options: {

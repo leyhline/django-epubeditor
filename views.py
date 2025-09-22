@@ -52,7 +52,7 @@ OP_MAP: Final[dict[PayloadOpType, HistoryType]] = {
     "MERGE": "M",
     "SPLIT": "S",
 }
-RE_DEBUG_FILE_NAME = re.compile(r"(?P<id>\d{4})_(?P<trigger>[INUR])(?P<type>[CUDMS])_(?P<filename>.+)\.diff")
+RE_DEBUG_FILE_NAME = re.compile(r"(?P<filename>.+)_(?P<id>\d{4})_(?P<trigger>[INUR])(?P<type>[CUDMS])\.diff")
 
 
 def post_request(url: str, data: bytes) -> dict[str, Any]:
@@ -212,12 +212,12 @@ def write_debug_files_to_disk(
     else:
         new_id = int(folder_children[-1].group("id")) + 1
     if xhtml_debug_info is not None:
-        filename = f"{new_id:04d}_{trigger}{type}_{xhtml_debug_info.path.name}.diff"
+        filename = f"{xhtml_debug_info.path.name}_{new_id:04d}_{trigger}{type}.diff"
         diff = create_unified_diff(xhtml_debug_info, data_path)
         with data_path.joinpath(filename).open("w", encoding="utf-8") as f:
             f.writelines(diff)
     if smil_debug_info is not None:
-        filename = f"{new_id:04d}_{trigger}{type}_{smil_debug_info.path.name}.diff"
+        filename = f"{smil_debug_info.path.name}_{new_id:04d}_{trigger}{type}.diff"
         diff = create_unified_diff(smil_debug_info, data_path)
         with data_path.joinpath(filename).open("w", encoding="utf-8") as f:
             f.writelines(diff)
