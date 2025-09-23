@@ -19,9 +19,12 @@ Either run this locally using the Django development server with SQLite or do a 
 
 * Python 3.12+ (because I want to use `Path.walk` fron [pathlib](https://docs.python.org/3.12/library/pathlib.html#pathlib.Path.walk))
 * Django 5
+* Java 1.8 (for `epubcheck-server.jar` which I just put into the repo)
 
 When self-hosting, update the text inside `templates/epubeditor/about.html`. I disabled logging
 but if your server configuration is different, this should be written down somewhere. Of course, you are not allowed to change the license.
+
+When uploading EPUBs, they are first checked against the official [epubcheck](https://github.com/w3c/epubcheck/) tool. You need to start this first by either `java -jar epubcheck-server.jar` or by `python manage.py runepubcheck`.
 
 ## Technical Rationale
 
@@ -39,8 +42,16 @@ As for the frontend... Unfortunately, I use a complicated build pipeline based o
 
 Since there are long-running tasks, some adjustments will be of advantage:
 
-* use asyncio / async views
 * use background workers ([DEP-14](https://github.com/django/deps/blob/main/accepted/0014-background-workers.rst)) when they are available
-* use daphne or uvicorn in production
+* I'd like to have some general structure for experimenting with alignments
+* is it possible to remove all the npm dependencies and just use vanilla js?
+* get rid of epubcheck and the Java dependencies
 
 Note: For the moment, I would like to avoid websockets.
+
+Note 2: There is also an additional variable for writing out detailed diffs when editing around. This is more for debugging, but it is:
+
+```python
+# put into settings.py
+SERIALIZE_PAYLOADS = True
+```

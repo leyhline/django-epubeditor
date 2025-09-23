@@ -7,6 +7,7 @@ from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final, Any, Iterator
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from django.conf import settings
@@ -52,7 +53,7 @@ OP_MAP: Final[dict[PayloadOpType, HistoryType]] = {
     "MERGE": "M",
     "SPLIT": "S",
 }
-RE_DEBUG_FILE_NAME = re.compile(r"(?P<filename>.+)_(?P<id>\d{4})_(?P<trigger>[INUR])(?P<type>[CUDMS])\.diff")
+RE_DEBUG_FILE_NAME = re.compile(r"(?P<item_id>.+)_(?P<id>\d{4})_(?P<trigger>[INUR])(?P<type>[CUDMS])\.diff")
 
 
 def post_request(url: str, data: bytes) -> dict[str, Any]:
@@ -188,12 +189,14 @@ def handle_book_content_op(
         case other:
             response = JsonResponse({"message": f"Operation not supported: '{other}'"}, status=400)
     if getattr(settings, "SERIALIZE_PAYLOADS", False):
-        write_debug_files_to_disk(book, trigger, type, xhtml_debug_info, smil_debug_info)
+        write_debug_files_to_disk(book, item_id, data, trigger, type, xhtml_debug_info, smil_debug_info)
     return response
 
 
 def write_debug_files_to_disk(
     book: Book,
+    item_id: str,
+    data: MergePayload | SplitPayload | ParData,
     trigger: HistoryTrigger,
     type: HistoryType,
     xhtml_debug_info: DebugInfo | None,
@@ -211,16 +214,16 @@ def write_debug_files_to_disk(
         new_id = 1
     else:
         new_id = int(folder_children[-1].group("id")) + 1
-    if xhtml_debug_info is not None:
-        filename = f"{xhtml_debug_info.path.name}_{new_id:04d}_{trigger}{type}.diff"
-        diff = create_unified_diff(xhtml_debug_info, data_path)
-        with data_path.joinpath(filename).open("w", encoding="utf-8") as f:
-            f.writelines(diff)
-    if smil_debug_info is not None:
-        filename = f"{smil_debug_info.path.name}_{new_id:04d}_{trigger}{type}.diff"
-        diff = create_unified_diff(smil_debug_info, data_path)
-        with data_path.joinpath(filename).open("w", encoding="utf-8") as f:
-            f.writelines(diff)
+    filename = f"{item_id}_{new_id:04d}_{trigger}{type}.diff"
+    with data_path.joinpath(filename).open("w", encoding="utf-8") as f:
+        f.write(json.dumps(data))
+        f.write("\n")
+        if smil_debug_info is not None:
+            smil_diff = create_unified_diff(smil_debug_info, data_path)
+            f.writelines(smil_diff)
+        if xhtml_debug_info is not None:
+            xhtml_diff = create_unified_diff(xhtml_debug_info, data_path)
+            f.writelines(xhtml_diff)
 
 
 def create_unified_diff(debug_info: DebugInfo, data_path: Path) -> Iterator[str]:
@@ -316,13 +319,24 @@ class UploadBookView(LoginRequiredMixin, FormView):
             return self.form_invalid(form)
 
         try:
-            check_result = call_epubcheck(epub.file.name)
+            # check_result = call_epubcheck(epub.file.name)
+            check_result = call_epubcheck("blah.epub")
         except AssertionError as e:
             form.add_error("epub", str(e))
             return self.form_invalid(form)
         except RuntimeError as e:
             for error in e.args:
                 form.add_error("epub", error)
+            return self.form_invalid(form)
+        except HTTPError as e:
+            error_msg = f"{e.code} {e.msg}"
+            try:
+                response_body = json.loads(e.file.read())
+                if "message" in response_body:
+                    error_msg += f"- {response_body["message"]}"
+            except json.JSONDecodeError:
+                pass
+            form.add_error("epub", error_msg)
             return self.form_invalid(form)
 
         compressed_size = sum((item.get("compressedSize", 0)) for item in check_result["items"])

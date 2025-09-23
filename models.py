@@ -322,7 +322,7 @@ class Book(models.Model):
             text_src, text_id, other_text_id, old_smil, new_smil = merge_smil(
                 smil_tree, payload["parId"], payload["otherParId"]
             )
-            assert (smil_path.parent / text_src) == xhtml_path
+            assert smil_path.parent.joinpath(text_src).resolve() == xhtml_path
             old_xhtml_content, old_xhtml_modified = read_file_for_debug(xhtml_path)
             xhtml_tree = XhtmlTree(file=xhtml_path)
             old_xhtml, new_xhtml = merge_xhtml(xhtml_tree, text_id, other_text_id)
@@ -360,7 +360,7 @@ class Book(models.Model):
             old_smil_content, old_smil_modified = read_file_for_debug(smil_path)
             smil_tree = SmilTree(file=smil_path)
             text_src, text_id = get_text_href_from_smil(smil_tree, payload["parId"])
-            assert (smil_path.parent / text_src) == xhtml_path
+            assert smil_path.parent.joinpath(text_src).resolve() == xhtml_path
             old_xhtml_content, old_xhtml_modified = read_file_for_debug(xhtml_path)
             xhtml_tree = XhtmlTree(file=xhtml_path)
             new_text_id, text1, text2, old_xhtml, new_xhtml = split_xhtml(xhtml_tree, text_id, payload["index"])
