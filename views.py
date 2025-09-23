@@ -319,8 +319,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
             return self.form_invalid(form)
 
         try:
-            # check_result = call_epubcheck(epub.file.name)
-            check_result = call_epubcheck("blah.epub")
+            check_result = call_epubcheck(epub.file.name)
         except AssertionError as e:
             form.add_error("epub", str(e))
             return self.form_invalid(form)
