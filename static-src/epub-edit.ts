@@ -346,14 +346,13 @@ function parseCss(css: string, cssUrl: URL): CssParseResult {
       const styleRule = rule as CSSStyleRule
       if (["html", "body", ":root"].includes(styleRule.selectorText)) {
         styleRule.selectorText = ":host"
-        const writingModeRules: string[] = []
-        if (styleRule.styleMap.has("writing-mode"))
-          writingModeRules.push(styleRule.styleMap.get("writing-mode")!.toString())
-        if (styleRule.styleMap.has("-webkit-writing-mode"))
-          writingModeRules.push(styleRule.styleMap.get("-webkit-writing-mode")!.toString())
-        if (styleRule.styleMap.has("-epub-writing-mode"))
-          writingModeRules.push(styleRule.styleMap.get("-epub-writing-mode")!.toString())
-        if (writingModeRules.includes("vertical-rl") || writingModeRules.includes("vertical-lr"))
+        const writingModeRules: Set<string> = new Set()
+        for (const styleProp of styleRule.style) {
+          if (["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].includes(styleProp)) {
+            writingModeRules.add(styleRule.style.getPropertyValue(styleProp))
+          }
+        }
+        if (writingModeRules.has("vertical-rl") || writingModeRules.has("vertical-lr"))
           isVerticalWritingMode = true
       }
     }

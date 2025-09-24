@@ -15,6 +15,7 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
+from django.core.files.uploadedfile import TemporaryUploadedFile
 from django.core.files.uploadhandler import TemporaryFileUploadHandler
 from django.db.models import OuterRef, Subquery, Q
 from django.http import FileResponse, HttpResponseNotFound, HttpResponseRedirect, JsonResponse, HttpRequest
@@ -305,7 +306,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
         return super().post(request, *args, **kwargs)
 
     def form_valid(self, form):
-        epub = form.cleaned_data["epub"]
+        epub: TemporaryUploadedFile = form.cleaned_data["epub"]
 
         disk_usage = shutil.disk_usage(Path(settings.MEDIA_ROOT))
         # max 1 GB empty space
@@ -319,7 +320,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
             return self.form_invalid(form)
 
         try:
-            check_result = call_epubcheck(epub.file.name)
+            check_result = call_epubcheck(epub.temporary_file_path())
         except AssertionError as e:
             form.add_error("epub", str(e))
             return self.form_invalid(form)
@@ -346,7 +347,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
 
         epub_version = check_result["publication"]["ePubVersion"].split(".")
         if epub_version[0] != "3":
-            form.add_error("epub", "ePub version 3.x expected")
+            form.add_error("epub", "EPUB version 3.0 expected")
             return self.form_invalid(form)
 
         errors = [
@@ -522,11 +523,8 @@ class DeleteAccountView(LoginRequiredMixin, DeleteView):
         return self.request.user
 
 
-class ResourceData(AbstractBookDetailView):
+class ResourceDataView(AbstractBookDetailView):
     def get(self, request, *args, **kwargs):
-        """
-        TODO: Better use nginx redirecting in a production environment instead of piping everything through Django
-        """
         book: Book = self.get_object()
         rel_path = self.kwargs["path"]
         media_type = book.get_media_type(rel_path)
@@ -537,16 +535,13 @@ class ResourceData(AbstractBookDetailView):
         return FileResponse(path.open("rb"), content_type=media_type)
 
 
-class CoverImage(AbstractBookDetailView):
+class CoverImageView(AbstractBookDetailView):
     def get(self, request, *args, **kwargs):
-        """
-        TODO: same as above, use nginx redirecting
-        """
         book: Book = self.get_object()
         return FileResponse(book.cover.open("rb"), content_type="image/jpeg")
 
 
-class EpubDownload(AbstractBookDetailView):
+class EpubDownloadView(AbstractBookDetailView):
     def get(self, request, *args, **kwargs):
         book: Book = self.get_object()
         tempdir = TemporaryDirectory()
