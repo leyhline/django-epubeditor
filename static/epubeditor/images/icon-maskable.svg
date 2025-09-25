@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg version="1.1" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
  <g stroke-miterlimit="4.6">
-  <rect width="100" height="100" fill="#f97a15" stroke-linecap="square" stroke-width="4.0452" style="paint-order:stroke fill markers"/>
+  <rect width="100" height="100" fill="#f97316" stroke-linecap="square" stroke-width="4.0452" style="paint-order:stroke fill markers"/>
   <g stroke="#71717a" stroke-linecap="square">
    <rect x="22.5" y="28.75" width="55" height="43.183" fill="#71717a" stroke-linejoin="round" stroke-width="5" style="paint-order:normal"/>
    <rect x="46.856" y="71.933" width="6.288" height="2.3577" fill="#71717a" stroke-linejoin="round" stroke-width="5" style="paint-order:normal"/>
    <path d="m76.715 29.535c-21.606-3.8276-26.714 2.3578-26.714 2.3578s-5.1081-6.2835-27.5-2.3578v42.398c22.392-3.9258 27.5 2.3577 27.5 2.3577s5.1084-6.1853 26.714-2.3577v-42.398" fill="#fff" stroke-width="2" style="paint-order:stroke fill markers"/>
   </g>
-  <path d="m48.821 30.713h2.3571v39.258l-1.1784-1.9629-1.1788 1.9629z" fill="#f97a15" stroke="#71717a" stroke-linecap="square" style="paint-order:stroke fill markers"/>
+  <path d="m48.821 30.713h2.3571v39.258l-1.1784-1.9629-1.1788 1.9629z" fill="#f97316" stroke="#71717a" stroke-linecap="square" style="paint-order:stroke fill markers"/>
   <g fill="none" stroke="#71717a" stroke-linecap="round" stroke-linejoin="round" stroke-width=".70836">
    <path d="m25.921 35.831c15.862-2.7809 19.48 1.6701 19.48 1.6701" style="paint-order:stroke fill markers"/>
    <path d="m25.921 41.327c15.862-2.7809 19.48 1.6701 19.48 1.6701" style="paint-order:stroke fill markers"/>
@@ -16,6 +16,6 @@
    <path d="m25.921 57.815c15.862-2.7809 19.48 1.6701 19.48 1.6701" style="paint-order:stroke fill markers"/>
    <path d="m25.921 63.311c15.862-2.7809 19.48 1.6701 19.48 1.6701" style="paint-order:stroke fill markers"/>
   </g>
-  <path d="m51.966 70.465 19.816-18.874-19.816-19.886v3.8756l15.792 15.909-15.792 15.099z" fill="#f97a15" stroke="#71717a" stroke-linecap="square" stroke-width="1.0034" style="paint-order:stroke fill markers"/>
+  <path d="m51.966 70.465 19.816-18.874-19.816-19.886v3.8756l15.792 15.909-15.792 15.099z" fill="#f97316" stroke="#71717a" stroke-linecap="square" stroke-width="1.0034" style="paint-order:stroke fill markers"/>
  </g>
 </svg>

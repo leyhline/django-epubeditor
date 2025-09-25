@@ -41,7 +41,7 @@
      inkscape:groupmode="layer"
      id="layer1">
     <rect
-       style="fill:#f97a15;stroke-width:4.04518;stroke-linecap:square;stroke-miterlimit:4.6;paint-order:stroke fill markers"
+       style="fill:#f97316;stroke-width:4.04518;stroke-linecap:square;stroke-miterlimit:4.6;paint-order:stroke fill markers"
        id="rect3"
        width="100"
        height="100"
@@ -68,7 +68,7 @@
        sodipodi:nodetypes="ccccccc" />
     <path
        id="rect9"
-       style="fill:#f97a15;fill-opacity:1;stroke:#71717a;stroke-width:1;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:4.6;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
+       style="fill:#f97316;fill-opacity:1;stroke:#71717a;stroke-width:1;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:4.6;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
        d="m 48.5,25 h 3 V 75 L 50.000265,72.5 48.5,75 Z"
        sodipodi:nodetypes="cccccc" />
     <path
@@ -102,7 +102,7 @@
        id="path17"
        sodipodi:nodetypes="cc" />
     <path
-       style="fill:#f97a15;fill-opacity:1;fill-rule:nonzero;stroke:#71717a;stroke-width:1.00345;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:4.6;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
+       style="fill:#f97316;fill-opacity:1;fill-rule:nonzero;stroke:#71717a;stroke-width:1.00345;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:4.6;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
        d="M 52.501725,75.630529 77.722445,51.592157 52.501725,26.264891 v 4.936187 L 72.600414,51.462936 52.501725,70.693344 Z"
        id="path18"
        sodipodi:nodetypes="ccccccc" />
