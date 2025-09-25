@@ -21,22 +21,20 @@ urlpatterns = [
     path("history/<username>/<basename>/<item_id>/", views.HistoryItemView.as_view(), name="item_history"),
     path("resources/<username>/<basename>/", views.ResourcesView.as_view(), name="resources"),
     path("about/", views.AboutView.as_view(), name="about"),
+    path("covers/<username>/<basename>/", views.CoverImageView.as_view(), name="cover"),
+    path(
+        "resources/<username>/<basename>/<path:path>",
+        no_append_slash(views.ResourceDataView.as_view()),
+        name="resource_data",
+    ),
 ]
 
-if not getattr(settings, "STATIC_FILES_FROM_SERVER", False):
-    urlpatterns.extend(
-        [
-            path("sw.js", no_append_slash(views.ServiceWorkerView.as_view()), name="service_worker"),
-            re_path(
-                r"^(?P<filename>workbox-[a-z0-9]+\.js)$",
-                no_append_slash(views.WorkboxView.as_view()),
-                name="workbox_runtime",
-            ),
-            path(
-                "resources/<username>/<basename>/<path:path>",
-                no_append_slash(views.ResourceDataView.as_view()),
-                name="resource_data",
-            ),
-            path("covers/<username>/<basename>/", views.CoverImageView.as_view(), name="cover"),
-        ]
+if not getattr(settings, "SW_SERVER_CONFIG", False):
+    urlpatterns.append(path("sw.js", no_append_slash(views.ServiceWorkerView.as_view()), name="service_worker"))
+    urlpatterns.append(
+        re_path(
+            r"^(?P<filename>workbox-[a-z0-9]+\.js)$",
+            no_append_slash(views.WorkboxView.as_view()),
+            name="workbox_runtime",
+        )
     )

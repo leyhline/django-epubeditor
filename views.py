@@ -18,7 +18,14 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import TemporaryUploadedFile
 from django.core.files.uploadhandler import TemporaryFileUploadHandler
 from django.db.models import OuterRef, Subquery, Q
-from django.http import FileResponse, HttpResponseNotFound, HttpResponseRedirect, JsonResponse, HttpRequest
+from django.http import (
+    FileResponse,
+    HttpResponse,
+    HttpResponseNotFound,
+    HttpResponseRedirect,
+    JsonResponse,
+    HttpRequest,
+)
 from django.urls import reverse_lazy, reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -532,13 +539,26 @@ class ResourceDataView(AbstractBookDetailView):
             return HttpResponseNotFound()
         path = book.get_rootfile_path().parent.joinpath(rel_path).resolve()
         book.assert_data_path(path)
-        return FileResponse(path.open("rb"), content_type=media_type)
+        if getattr(settings, "USE_XSENDFILE", False):
+            path_val = path.as_posix().encode("utf-8")
+            return HttpResponse(
+                content_type=media_type, headers={"X-Sendfile": path_val, "Content-Disposition": "inline"}
+            )
+        else:
+            return FileResponse(path.open("rb"), content_type=media_type)
 
 
 class CoverImageView(AbstractBookDetailView):
     def get(self, request, *args, **kwargs):
         book: Book = self.get_object()
-        return FileResponse(book.cover.open("rb"), content_type="image/jpeg")
+        if getattr(settings, "USE_XSENDFILE", False):
+            path = Path(settings.MEDIA_ROOT).joinpath(book.cover.name)
+            path_val = path.as_posix().encode("utf-8")
+            return HttpResponse(
+                content_type="image/jpeg", headers={"X-Sendfile": path_val, "Content-Disposition": "inline"}
+            )
+        else:
+            return FileResponse(book.cover.open("rb"), content_type="image/jpeg")
 
 
 class EpubDownloadView(AbstractBookDetailView):
