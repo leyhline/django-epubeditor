@@ -1,13 +1,13 @@
 import math
 import re
-from collections.abc import Iterator, Container
+from collections.abc import Container, Iterator
 from copy import deepcopy
 from itertools import pairwise
 from pathlib import Path
 from typing import NamedTuple, TypedDict
 from xml.etree.ElementTree import Element, SubElement
 
-from epubeditor.xhtml import SmilTree, OpfTree, XhtmlTree, deepcopy_parent_element
+from epubeditor.xhtml import OpfTree, SmilTree, XhtmlTree, deepcopy_parent_element
 
 Timing = tuple[float, float]
 
@@ -588,8 +588,39 @@ def adjust_smil_timings(tree: SmilTree) -> None:
         pars = seq.iterfind("par", namespaces=namespaces)
         for par1, par2 in pairwise(pars):
             audio1 = par1.find("audio", namespaces=namespaces)
+            if audio1 is None:
+                continue
             end1 = audio1.get("clipEnd")
             audio2 = par2.find("audio", namespaces=namespaces)
+            if audio2 is None:
+                continue
             begin2 = audio2.get("clipBegin")
             if end1 is not None and begin2 is not None:
                 audio1.set("clipEnd", begin2)
+
+
+def remove_media_overlays(tree: OpfTree) -> None:
+    namespaces = tree.register_namespaces()
+    metadata = tree.find("metadata", namespaces=namespaces)
+    if metadata is not None:
+        metadata_children_to_remove: list[Element] = []
+        for element in metadata.iterfind("meta", namespaces=namespaces):
+            element_property = element.get("property")
+            if element_property is None:
+                continue
+            if element_property.startswith("media:"):
+                metadata_children_to_remove.append(element)
+        for child in metadata_children_to_remove:
+            metadata.remove(child)
+    manifest = tree.find("manifest", namespaces=namespaces)
+    if manifest is not None:
+        manifest_children_to_remove: list[Element] = []
+        for element in manifest.iterfind("item", namespaces=namespaces):
+            media_type = element.get("media-type")
+            if media_type is not None and (media_type == "application/smil+xml" or media_type.startswith("audio/")):
+                manifest_children_to_remove.append(element)
+            else:
+                if element.get("media-overlay") is not None:
+                    del element.attrib["media-overlay"]
+        for child in manifest_children_to_remove:
+            manifest.remove(child)

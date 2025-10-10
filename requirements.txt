@@ -1,6 +1,6 @@
 # Basic dependencies for running the app locally using Django's development server and SQLite.
 # For password hashing with argon2 in Django's top-level settings.py, see
 # https://docs.djangoproject.com/en/5.2/topics/auth/passwords/#using-argon2-with-django
-django[argon2]~=5.2.6
+django[argon2]~=5.2.7
 pillow~=11.3.0
 defusedxml~=0.7.1

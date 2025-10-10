@@ -17,7 +17,7 @@ export default {
   output: {
     file: "static/epubeditor/main.js",
     format: "es",
-    sourcemap: true,
+    sourcemap: false,
   },
   plugins: [
     typescript(),
@@ -56,6 +56,8 @@ export default {
         shoelaceIcon("arrows-collapse-vertical"),
         shoelaceIcon("arrows-expand"),
         shoelaceIcon("arrows-expand-vertical"),
+        shoelaceIcon("arrow-clockwise"),
+        shoelaceIcon("arrow-counterclockwise"),
         shoelaceIcon("exclamation-octagon"),
         shoelaceIcon("info-circle"),
       ],
@@ -68,7 +70,7 @@ export default {
       modifyURLPrefix: {
         "": "/static/epubeditor/",
       },
-      sourcemap: true,
+      sourcemap: false,
       runtimeCaching: [
         {
           handler: "CacheFirst",

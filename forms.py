@@ -1,9 +1,9 @@
 import random
 from collections.abc import Callable
 
-from django.contrib.auth.forms import BaseUserCreationForm
+from django.contrib.auth.forms import BaseUserCreationForm  # type: ignore
 from django.contrib.auth.models import User
-from django.forms import ModelForm, EmailField, FileField, Form
+from django.forms import EmailField, FileField, Form, ModelForm
 
 from epubeditor.models import Book
 

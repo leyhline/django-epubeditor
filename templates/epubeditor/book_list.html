@@ -22,7 +22,8 @@
             <a href="{% url "history" book.uploader book.basename %}"><sl-menu-item>History</sl-menu-item></a>
             <a href="{% url "resources" book.uploader book.basename %}"><sl-menu-item>Resources</sl-menu-item></a>
             <a href="{% url "download" book.uploader book.basename %}"><sl-menu-item>Download</sl-menu-item></a>
-            <a href="{% url "download" book.uploader book.basename %}?for_reading_system"><sl-menu-item>Download for reading system</sl-menu-item></a>
+            <a href="{% url "download" book.uploader book.basename %}?for_reading_systems"><sl-menu-item>Download for reading system</sl-menu-item></a>
+            <a href="{% url "download" book.uploader book.basename %}?without_media_overlays"><sl-menu-item>Download without audio</sl-menu-item></a>
             {% if book.user_role == "UL" %}<a href="{% url "delete_book" book.uploader book.basename %}"><sl-menu-item>Delete</sl-menu-item></a>{% endif %}
           </sl-menu>
         </sl-dropdown>

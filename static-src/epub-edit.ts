@@ -4,7 +4,7 @@ import { customElement, property } from "lit/decorators.js"
 import { Task } from "@lit/task"
 import { adoptStyles, html, LitElement } from "lit"
 import type { ParData } from "./epub-overlay-edit"
-import { clockValueToSeconds, EpubOverlayEdit, playBuffer } from "./epub-overlay-edit"
+import { clockValueToSeconds, EpubOverlayEdit, playBuffer, callEndpoint, notify, showErrorDialog } from "./epub-overlay-edit"
 import type { SlIconButton, SlTooltip } from "@shoelace-style/shoelace"
 
 type ParseResult = XhtmlParseResult & Partial<SmilParseResult>
@@ -112,15 +112,16 @@ export class EpubEdit extends LitElement {
 
   private enableEditModeButton(epubOverlayEdit: EpubOverlayEdit): void {
     const editModeButton = document.getElementById("edit-mode-toggle") as SlIconButton | null
-    if (!editModeButton) return
+    const undoButton = document.getElementById("undo-button") as SlIconButton | null
+    const redoButton = document.getElementById("redo-button") as SlIconButton | null
+    if (!editModeButton || !undoButton || !redoButton) return
     epubOverlayEdit.audioSrcMap = this.audioSrcMap
     epubOverlayEdit.audioContext = this.audioContext
     editModeButton.onclick = () => {
-      this.toggleEditModeEvent(epubOverlayEdit)
+      this.toggleEditModeEvent(epubOverlayEdit, undoButton, redoButton)
     }
-    // @ts-expect-error This is a custom event I defined myself in the EpubOverlayEdit component
-    epubOverlayEdit.addEventListener("restructured", (event: CustomEvent) => {
-      const detail = event.detail as { textId: string | null }
+
+    const restructuredEventHandler = (event?: CustomEvent) => {
       this.enableSpinner("Reloading book's media overlay")
       void handleXml([this.src, this.smilsrc], { signal: this.editModeAbortController!.signal })
         .then((parseResult) => {
@@ -146,11 +147,14 @@ export class EpubEdit extends LitElement {
             parseResult.parsData!,
             this.overlayElems,
           )
-          if (detail.textId) {
-            for (let i = 0; i < this.overlayElems.length; i++) {
-              if (this.overlayElems[i].id === detail.textId) {
-                markModifyOverlayElement(this.overlayElems, i, epubOverlayEdit)
-                break
+          if (event) {
+            const detail = event.detail as { textId: string | null }
+            if (detail.textId) {
+              for (let i = 0; i < this.overlayElems.length; i++) {
+                if (this.overlayElems[i].id === detail.textId) {
+                  markModifyOverlayElement(this.overlayElems, i, epubOverlayEdit)
+                  break
+                }
               }
             }
           }
@@ -158,44 +162,82 @@ export class EpubEdit extends LitElement {
         .finally(() => {
           this.disableSpinner()
         })
-    })
-    /*
+    }
+
+    undoButton.onclick = () => {
+      undoButton.disabled = true
+      void this.undo()
+        .then(async (response) => {
+          if (response.ok) {
+            const { message } = (await response.json())
+            notify(`Undo: ${message}`, "primary", "info-circle", 5000)
+            restructuredEventHandler()
+          } else if (response.headers.get("content-type")?.startsWith("text/html")) {
+            showErrorDialog(await response.text(), "Undo failed")
+          } else {
+            const data = (await response.json()) as { message: string }
+            notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000)
+          }
+        })
+        .catch((error: unknown) => {
+          notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000)
+        })
+        .finally(() => {
+          undoButton.disabled = false
+        })
+    }
+
+    redoButton.onclick = () => {
+      redoButton.disabled = true
+      void this.redo()
+        .then(async (response) => {
+          if (response.ok) {
+            const { message } = (await response.json())
+            notify(`Redo: ${message}`, "primary", "info-circle", 5000)
+            restructuredEventHandler()
+          } else if (response.headers.get("content-type")?.startsWith("text/html")) {
+            showErrorDialog(await response.text(), "Redo failed")
+          } else {
+            const data = (await response.json()) as { message: string }
+            notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000)
+          }
+        })
+        .catch((error: unknown) => {
+          notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000)
+        })
+        .finally(() => {
+          redoButton.disabled = false
+        })
+    }
+
     // @ts-expect-error This is a custom event I defined myself in the EpubOverlayEdit component
-    epubOverlayEdit.addEventListener("deleted", (event: CustomEvent) => {
-      const { elems, old } = event.detail as { old: ParData; elems: ParElems }
-      this.afterDeletedEvent(elems, old.parId, epubOverlayEdit)
-    })
-    // @ts-expect-error This is a custom event I defined myself in the EpubOverlayEdit component
-    epubOverlayEdit.addEventListener("created", (event: CustomEvent) => {
-      const detail = event.detail as { new: ParData; elems: ParElems }
-      this.afterCreatedEvent(detail.elems, detail.new, epubOverlayEdit)
-    })
-    // @ts-expect-error This is a custom event I defined myself in the EpubOverlayEdit component
-    epubOverlayEdit.addEventListener("merged", (event: CustomEvent) => {
-      const detail = event.detail as { new: ParData; parIdDeleted: string; textIdDeleted: string }
-      this.afterMergeEvent(detail.new, detail.textIdDeleted, detail.parIdDeleted, epubOverlayEdit)
-    })
-    // @ts-expect-error This is a custom event I defined myself in the EpubOverlayEdit component
-    epubOverlayEdit.addEventListener("split", (event: CustomEvent) => {
-      console.warn("Not implemented: handling of split event", event.detail)
-      this.afterSplitEvent(epubOverlayEdit)
-    })
-    */
+    epubOverlayEdit.addEventListener("restructured", restructuredEventHandler)
     // After enabling all functionality, also enable the button itself.
     editModeButton.disabled = false
   }
 
-  private toggleEditModeEvent(epubOverlayEdit: EpubOverlayEdit): void {
+  private async undo(): Promise<Response> {
+    return callEndpoint({op: "UNDO"})
+  }
+  private async redo(): Promise<Response> {
+    return callEndpoint({op: "REDO"})
+  }
+
+  private toggleEditModeEvent(epubOverlayEdit: EpubOverlayEdit, undoButton: SlIconButton, redoButton: SlIconButton): void {
     if (this.editModeActive) {
       this.editModeActive = false
       epubOverlayEdit.style.display = "none"
       if (this.editModeAbortController) this.editModeAbortController.abort()
       if (this.parseResult) removeEditModeListeners(this.parseResult.body)
       epubOverlayEdit.elems = undefined
+      undoButton.disabled = true
+      redoButton.disabled = true
     } else {
       if (!this.parseResult) return
       this.editModeActive = true
       epubOverlayEdit.style.display = "flex"
+      undoButton.disabled = false
+      redoButton.disabled = false
       const xhtmlUrl = new URL(this.src!, window.location.origin)
       const smilUrl = new URL(this.smilsrc!, window.location.origin)
       this.editModeAbortController = new AbortController()

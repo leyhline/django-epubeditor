@@ -1,56 +1,65 @@
-from datetime import datetime, timezone as tz
 import os
 import shutil
+from datetime import datetime
+from datetime import timezone as tz
+from enum import Enum
 from os import PathLike
 from pathlib import Path
 from time import sleep
-from typing import Literal, Final, IO, NamedTuple, TypedDict, Union
+from typing import IO, Final, Literal, NamedTuple, TypedDict, Union, cast
 from xml.etree.ElementTree import Element
-from zipfile import ZIP_STORED, ZipFile, ZIP_DEFLATED
+from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
-from PIL import Image
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
 from django.dispatch import receiver
 from django.utils import timezone
+from PIL import Image
 
 from epubeditor.epub import (
     COMPRESSABLE_CORE_MEDIA_TYPES,
+    CORE_MEDIA_TYPES,
+    ParData,
+    ResourceListingItem,
+    TocListingItem,
+    adjust_smil_timings,
+    create_smil,
+    extract_par_data,
     get_cover_image_path,
+    get_text_href_from_smil,
     get_toc_path,
     iterate_manifest_items,
-    CORE_MEDIA_TYPES,
-    TocListingItem,
-    ResourceListingItem,
-    read_toc,
-    read_xml_hrefs,
-    read_resource_listing,
     merge_smil,
     merge_xhtml,
-    get_text_href_from_smil,
-    split_xhtml,
-    extract_par_data,
-    ParData,
-    split_smil,
-    create_smil,
+    read_resource_listing,
+    read_toc,
+    read_xml_hrefs,
+    remove_media_overlays,
     split_element,
-    adjust_smil_timings,
+    split_smil,
+    split_xhtml,
 )
-from epubeditor.fields import XhtmlField, SmilField
+from epubeditor.fields import SmilField, XhtmlField
 from epubeditor.xhtml import (
-    XhtmlTree,
-    SmilTree,
-    ContainerTree,
-    OpfTree,
     SMIL_NAMESPACES,
     XHTML_NAMESPACES,
+    ContainerTree,
+    OpfTree,
+    SmilTree,
+    XhtmlTree,
 )
 
 RoleKey = Literal["UL", "ED", "RD"]
 HistoryType = Literal["C", "U", "D", "M", "S"]
 HistoryTrigger = Literal["I", "N", "U", "R"]
-PayloadOpType = Literal["CREATE", "UPDATE", "DELETE", "MERGE", "SPLIT"]
+PayloadOpType = Literal["CREATE", "UPDATE", "DELETE", "MERGE", "SPLIT", "UNDO", "REDO"]
+
+
+class CompressToEpubOption(Enum):
+    NONE = ""
+    FOR_READING_SYSTEMS = "for_reading_systems"
+    WITHOUT_MEDIA_OVERLAYS = "without_media_overlays"
 
 
 class DebugInfo(NamedTuple):
@@ -69,10 +78,6 @@ class MergePayload(TypedDict):
 class SplitPayload(TypedDict):
     parId: str
     index: int
-
-
-class ModifyPayload(ParData):
-    op: Literal["CREATE", "UPDATE", "DELETE"]
 
 
 class BookContentPayload(MergePayload, SplitPayload, ParData):
@@ -146,7 +151,7 @@ class Book(models.Model):
             return
         raise FileNotFoundError(f"rootfile not found in {data_path}")
 
-    def compress_to_epub(self, folder: str, for_reading_system: bool) -> str:
+    def compress_to_epub(self, folder: str, option: CompressToEpubOption) -> str:
         data_path = self.get_data_path()
         zip_path = os.path.join(folder, f"{self.basename}.epub")
         meta_inf_files: Final = {
@@ -163,11 +168,22 @@ class Book(models.Model):
                 if child.is_file() and child.name in meta_inf_files:
                     zipfile.write(child, child.relative_to(data_path))
             rootfile_path = self.get_rootfile_path()
-            zipfile.write(rootfile_path, rootfile_path.relative_to(data_path))
+            if option == CompressToEpubOption.WITHOUT_MEDIA_OVERLAYS:
+                rootfile_tree = OpfTree(file=rootfile_path)
+                remove_media_overlays(rootfile_tree)
+                zipfile.writestr(rootfile_path.relative_to(data_path).as_posix(), rootfile_tree.tostring())
+            else:
+                zipfile.write(rootfile_path, rootfile_path.relative_to(data_path))
             for resource in self.get_resource_listing():
                 path = rootfile_path.parent.joinpath(resource.href)
                 media_type = resource.attributes.get("media-type")
-                if for_reading_system and media_type == "application/smil+xml":
+                if (
+                    option == CompressToEpubOption.WITHOUT_MEDIA_OVERLAYS
+                    and media_type is not None
+                    and (media_type == "application/smil+xml" or media_type.startswith("audio/"))
+                ):
+                    pass
+                elif option == CompressToEpubOption.FOR_READING_SYSTEMS and media_type == "application/smil+xml":
                     smil_tree = SmilTree(file=path)
                     adjust_smil_timings(smil_tree)
                     zipfile.writestr(path.relative_to(data_path).as_posix(), smil_tree.tostring())
@@ -261,81 +277,105 @@ class Book(models.Model):
         lock.lock()
         return lock
 
-    def modify_smil(self, item_id: str, new: ParData) -> tuple[ParData, DebugInfo]:
+    def modify_smil(self, item_id: str, new: ParData, do_serialize_payloads: bool) -> tuple[ParData, DebugInfo | None]:
         smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
-            old_content, old_modified = read_file_for_debug(smil_path)
+            debug_info: DebugInfo | None = None
+            if do_serialize_payloads:
+                old_content, old_modified = read_file_for_debug(smil_path)
             tree = SmilTree(file=smil_path)
             namespaces = tree.register_namespaces()
             par = tree.find(".//par[@id='%s']" % new["parId"], namespaces=namespaces)
+            assert par is not None, f"No par element found with id={new['parId']} in: {smil_path}"
             old = extract_par_data(par, namespaces)
             audio = par.find("audio", namespaces=namespaces)
+            assert audio is not None, f"No audio element found below par with id={new['parId']} in: {smil_path}"
             audio.set("clipBegin", new["clipBegin"])
             audio.set("clipEnd", new["clipEnd"])
             tree.write(smil_path)
-            new_content, new_modified = read_file_for_debug(smil_path)
-            return old, DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)
+            if do_serialize_payloads:
+                new_content, new_modified = read_file_for_debug(smil_path)
+                debug_info = DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)  # type: ignore
+            return old, debug_info
         finally:
             lock.unlock()
 
-    def delete_from_smil(self, item_id: str, old: ParData) -> tuple[ParData, DebugInfo]:
+    def delete_from_smil(
+        self, item_id: str, old: ParData, do_serialize_payloads: bool
+    ) -> tuple[ParData, DebugInfo | None]:
         smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
-            old_content, old_modified = read_file_for_debug(smil_path)
+            debug_info: DebugInfo | None = None
+            if do_serialize_payloads:
+                old_content, old_modified = read_file_for_debug(smil_path)
             tree = SmilTree(file=smil_path)
             namespaces = tree.register_namespaces()
             par_parent = tree.find(".//par[@id='%s']/.." % old["parId"], namespaces=namespaces)
+            assert par_parent is not None, f"No parent of par element with id={old['parId']} found in: {smil_path}"
             par = par_parent.find("./par[@id='%s']" % old["parId"], namespaces=namespaces)
+            assert par is not None, f"No par element found with id={old['parId']} in: {smil_path}"
             par_parent.remove(par)
             tree.write(smil_path)
-            new_content, new_modified = read_file_for_debug(smil_path)
-            return old, DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)
+            if do_serialize_payloads:
+                new_content, new_modified = read_file_for_debug(smil_path)
+                debug_info = DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)  # type: ignore
+            return old, debug_info
         finally:
             lock.unlock()
 
-    def add_to_smil(self, item_id: str, new: ParData) -> tuple[ParData, DebugInfo]:
+    def add_to_smil(self, item_id: str, new: ParData, do_serialize_payloads: bool) -> tuple[ParData, DebugInfo | None]:
         smil_path = self.get_xhtml_path(item_id, True)
         lock = self.lock(smil_path)
         try:
-            old_content, old_modified = read_file_for_debug(smil_path)
+            debug_info: DebugInfo | None = None
+            if do_serialize_payloads:
+                old_content, old_modified = read_file_for_debug(smil_path)
             tree = SmilTree(file=smil_path)
             new_par_id = create_smil(tree, new)
             new["parId"] = new_par_id
             tree.write(smil_path)
             new_content, new_modified = read_file_for_debug(smil_path)
-            return new, DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)
+            if do_serialize_payloads:
+                debug_info = DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)  # type: ignore
+            return new, debug_info
         finally:
             lock.unlock()
 
     def merge_elements(
-        self, item_id: str, payload: MergePayload
-    ) -> tuple[str, Element, Element, Element, Element, DebugInfo, DebugInfo]:
+        self, item_id: str, payload: MergePayload, do_serialize_payloads: bool
+    ) -> tuple[str, Element, Element, Element, Element, DebugInfo | None, DebugInfo | None]:
         xhtml_path = self.get_xhtml_path(item_id, False)
         smil_path = self.get_xhtml_path(item_id, True)
         xhtml_lock = self.lock(xhtml_path)
         smil_lock = self.lock(smil_path)
         try:
-            old_smil_content, old_smil_modified = read_file_for_debug(smil_path)
+            xhtml_debug_info: DebugInfo | None = None
+            smil_debug_info: DebugInfo | None = None
+            if do_serialize_payloads:
+                old_smil_content, old_smil_modified = read_file_for_debug(smil_path)
             smil_tree = SmilTree(file=smil_path)
             text_src, text_id, other_text_id, old_smil, new_smil = merge_smil(
                 smil_tree, payload["parId"], payload["otherParId"]
             )
             assert smil_path.parent.joinpath(text_src).resolve() == xhtml_path
-            old_xhtml_content, old_xhtml_modified = read_file_for_debug(xhtml_path)
+            if do_serialize_payloads:
+                old_xhtml_content, old_xhtml_modified = read_file_for_debug(xhtml_path)
             xhtml_tree = XhtmlTree(file=xhtml_path)
             old_xhtml, new_xhtml = merge_xhtml(xhtml_tree, text_id, other_text_id)
             smil_tree.write(smil_path)
-            new_smil_content, new_smil_modified = read_file_for_debug(smil_path)
-            smil_debug_info = DebugInfo(
-                smil_path, old_smil_content, new_smil_content, old_smil_modified, new_smil_modified
-            )
+            if do_serialize_payloads:
+                new_smil_content, new_smil_modified = read_file_for_debug(smil_path)
+                smil_debug_info = DebugInfo(
+                    smil_path, old_smil_content, new_smil_content, old_smil_modified, new_smil_modified  # type: ignore
+                )
             xhtml_tree.write(xhtml_path)
-            new_xhtml_content, new_xhtml_modified = read_file_for_debug(xhtml_path)
-            xhtml_debug_info = DebugInfo(
-                xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified
-            )
+            if do_serialize_payloads:
+                new_xhtml_content, new_xhtml_modified = read_file_for_debug(xhtml_path)
+                xhtml_debug_info = DebugInfo(
+                    xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified  # type: ignore
+                )
             return (
                 text_id,
                 old_xhtml,
@@ -350,33 +390,39 @@ class Book(models.Model):
             smil_lock.unlock()
 
     def split_elements(
-        self, item_id: str, payload: SplitPayload
-    ) -> tuple[str, Element, Element, Element, Element, DebugInfo, DebugInfo]:
+        self, item_id: str, payload: SplitPayload, do_serialize_payloads: bool
+    ) -> tuple[str, Element, Element, Element, Element, DebugInfo | None, DebugInfo | None]:
         xhtml_path = self.get_xhtml_path(item_id, False)
         smil_path = self.get_xhtml_path(item_id, True)
         xhtml_lock = self.lock(xhtml_path)
         smil_lock = self.lock(smil_path)
         try:
-            old_smil_content, old_smil_modified = read_file_for_debug(smil_path)
+            xhtml_debug_info: DebugInfo | None = None
+            smil_debug_info: DebugInfo | None = None
+            if do_serialize_payloads:
+                old_smil_content, old_smil_modified = read_file_for_debug(smil_path)
             smil_tree = SmilTree(file=smil_path)
             text_src, text_id = get_text_href_from_smil(smil_tree, payload["parId"])
             assert smil_path.parent.joinpath(text_src).resolve() == xhtml_path
-            old_xhtml_content, old_xhtml_modified = read_file_for_debug(xhtml_path)
+            if do_serialize_payloads:
+                old_xhtml_content, old_xhtml_modified = read_file_for_debug(xhtml_path)
             xhtml_tree = XhtmlTree(file=xhtml_path)
             new_text_id, text1, text2, old_xhtml, new_xhtml = split_xhtml(xhtml_tree, text_id, payload["index"])
             old_smil, new_smil = split_smil(
                 smil_tree, payload["parId"], f"{text_src}#{new_text_id}", len(text1), len(text2)
             )
             smil_tree.write(smil_path)
-            new_smil_content, new_smil_modified = read_file_for_debug(smil_path)
-            smil_debug_info = DebugInfo(
-                smil_path, old_smil_content, new_smil_content, old_smil_modified, new_smil_modified
-            )
+            if do_serialize_payloads:
+                new_smil_content, new_smil_modified = read_file_for_debug(smil_path)
+                smil_debug_info = DebugInfo(
+                    smil_path, old_smil_content, new_smil_content, old_smil_modified, new_smil_modified  # type: ignore
+                )
             xhtml_tree.write(xhtml_path)
-            new_xhtml_content, new_xhtml_modified = read_file_for_debug(xhtml_path)
-            xhtml_debug_info = DebugInfo(
-                xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified
-            )
+            if do_serialize_payloads:
+                new_xhtml_content, new_xhtml_modified = read_file_for_debug(xhtml_path)
+                xhtml_debug_info = DebugInfo(
+                    xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified  # type: ignore
+                )
             return text_id, old_xhtml, new_xhtml, old_smil, new_smil, xhtml_debug_info, smil_debug_info
         finally:
             xhtml_lock.unlock()
@@ -436,16 +482,18 @@ class History(models.Model):
         indexes = [models.Index(fields=["book", "item_id"])]
 
     def undo(self) -> tuple[PayloadOpType, HistoryType, ParData | MergePayload | SplitPayload]:
-        assert self.trigger not in ("N", "R")
-        match self.type:
+        assert (
+            self.trigger == "N" or self.trigger == "R"
+        ), f"Last operation is not undoable: {self.get_trigger_display()}"
+        match cast(HistoryType, self.type):
             case "C":
-                data: ParData = self.old
+                data = cast(ParData, self.old)
                 return "DELETE", "C", data
             case "U":
-                data: ParData = self.old
+                data = cast(ParData, self.old)
                 return "UPDATE", "U", data
             case "D":
-                data: ParData = self.new
+                data = cast(ParData, self.new)
                 return "CREATE", "D", data
             case "M":
                 seq_elem: Element = self.new_smil
@@ -453,11 +501,11 @@ class History(models.Model):
                 assert len(par_elems) == 1
                 par_id: str = par_elems[0].get("id")
                 text_elem = par_elems[0].find("text", namespaces=SMIL_NAMESPACES)
-                _, text_id = text_elem.get("src").split()
+                _, text_id = text_elem.get("src").split("#", 1)
                 xhtml_elem: Element = self.old_xhtml
                 span_elem = xhtml_elem.find(".//span[@id='%s']/.." % text_id, namespaces=XHTML_NAMESPACES)
                 _, _, counter = split_element(span_elem)
-                data: SplitPayload = {"parId": par_id, "index": counter}
+                data = cast(SplitPayload, {"parId": par_id, "index": counter})
                 return "SPLIT", "M", data
             case "S":
                 seq_elem: Element = self.new_smil
@@ -465,13 +513,13 @@ class History(models.Model):
                 assert len(par_elems) == 2
                 par1_id: str = par_elems[0].get("id")
                 par2_id: str = par_elems[1].get("id")
-                data: MergePayload = {"parId": par1_id, "otherParId": par2_id}
+                data = cast(MergePayload, {"parId": par1_id, "otherParId": par2_id})
                 return "MERGE", "S", data
             case other:
                 raise ValueError(f"Invalid history type: '{other}'")
 
     def redo(self) -> tuple[PayloadOpType, HistoryType, BookContentPayload]:
-        assert self.trigger == "U"
+        assert self.trigger == "U", f"Last operation is not redoable: {self.get_trigger_display()}"
         match self.type:
             case other:
                 raise NotImplementedError()

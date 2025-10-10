@@ -1,79 +1,66 @@
-from difflib import unified_diff
 import json
 import shutil
-import re
 from abc import ABCMeta
 from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Final, Any, Iterator
+from typing import cast
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
+from django.core.files.images import ImageFile
 from django.core.files.uploadedfile import TemporaryUploadedFile
 from django.core.files.uploadhandler import TemporaryFileUploadHandler
-from django.db.models import OuterRef, Subquery, Q
+from django.db.models import OuterRef, Q, Subquery
 from django.http import (
     FileResponse,
+    HttpRequest,
     HttpResponse,
     HttpResponseNotFound,
     HttpResponseRedirect,
     JsonResponse,
-    HttpRequest,
 )
-from django.urls import reverse_lazy, reverse
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
-from django.views.generic.base import TemplateResponseMixin, RedirectView, TemplateView, View
+from django.views.generic.base import (
+    RedirectView,
+    TemplateResponseMixin,
+    TemplateView,
+    View,
+)
 from django.views.generic.detail import BaseDetailView
-from django.views.generic.edit import FormView, DeleteView, CreateView
+from django.views.generic.edit import CreateView, DeleteView, FormView
 from django.views.generic.list import ListView
 
-from epubeditor.apps import EpubeditorConfig
-from epubeditor.forms import UploadBookForm, DeleteBookForm, UserCreationForm, build_challenge, equation_to_svg
+from epubeditor.forms import (
+    DeleteBookForm,
+    UploadBookForm,
+    UserCreationForm,
+    build_challenge,
+    equation_to_svg,
+)
 from epubeditor.models import (
     Book,
-    DebugInfo,
-    RoleKey,
-    Role,
-    History,
-    Epubcheck,
-    ParData,
-    HistoryType,
     BookContentPayload,
-    PayloadOpType,
-    HistoryTrigger,
-    MergePayload,
-    SplitPayload,
+    CompressToEpubOption,
+    Epubcheck,
+    History,
+    Role,
 )
-
-OP_MAP: Final[dict[PayloadOpType, HistoryType]] = {
-    "CREATE": "C",
-    "UPDATE": "U",
-    "DELETE": "D",
-    "MERGE": "M",
-    "SPLIT": "S",
-}
-RE_DEBUG_FILE_NAME = re.compile(r"(?P<item_id>.+)_(?P<id>\d{4})_(?P<trigger>[INUR])(?P<type>[CUDMS])\.diff")
-
-
-def post_request(url: str, data: bytes) -> dict[str, Any]:
-    request = Request(
-        url,
-        data=data,
-        headers={"Content-Type": "text/plain", "Accept": "application/json"},
-        method="POST",
-    )
-    with urlopen(request) as response:
-        assert response.status == 200, f"Request to '{url}' failed: {response.status} {response.reason}"
-        return json.loads(response.read())
+from epubeditor.viewsutils import (
+    OP_TO_TYPE,
+    call_epubcheck,
+    handle_book_content_op,
+    raise_for_permissions,
+    read_toc,
+)
 
 
 class AboutView(TemplateView):
@@ -85,12 +72,12 @@ class BookListView(ListView):
 
     def get_queryset(self):
         if self.request.user.is_authenticated:
-            role = self.request.user.role_set.filter(book=OuterRef("pk"))
-            return self.model.objects.filter(Q(users=self.request.user) | Q(is_public=True)).annotate(
+            role = self.request.user.role_set.filter(book=OuterRef("pk"))  # type: ignore
+            return Book.objects.filter(Q(users=self.request.user) | Q(is_public=True)).annotate(
                 user_role=Subquery(role.values("role"))
             )
         else:
-            return self.model.objects.filter(is_public=True)
+            return Book.objects.filter(is_public=True)
 
 
 class AbstractBookDetailView(BaseDetailView, metaclass=ABCMeta):
@@ -108,7 +95,7 @@ class AbstractBookDetailView(BaseDetailView, metaclass=ABCMeta):
         book: Book = queryset.get(uploader=uploader, basename=basename)
         if book.is_public:
             return book
-        elif self.request.user.is_authenticated and book.users.filter(id=self.request.user.id).exists():
+        elif self.request.user.is_authenticated and book.users.filter(id=self.request.user.id).exists():  # type: ignore
             return book
         else:
             raise self.model.DoesNotExist("%s matching query does not exist." % self.model.__name__)
@@ -124,126 +111,11 @@ class BookDetailView(TemplateResponseMixin, AbstractBookDetailView):
         context["basename"] = self.kwargs["basename"]
         context["listing"] = book.get_toc_listing()
         try:
-            raise_for_permissions(book, self.request.user)
+            raise_for_permissions(book, cast(User, self.request.user))
             context["editable"] = True
         except PermissionDenied:
             context["editable"] = False
         return context
-
-
-def handle_book_content_op(
-    op: PayloadOpType,
-    trigger: HistoryTrigger,
-    type: HistoryType,
-    user: User,
-    book: Book,
-    item_id: str,
-    data: MergePayload | SplitPayload | ParData,
-) -> JsonResponse:
-    xhtml_debug_info: DebugInfo | None = None
-    smil_debug_info: DebugInfo | None = None
-    match op:
-        case "UPDATE":
-            new: ParData = data
-            old, smil_debug_info = book.modify_smil(item_id, new)
-            History.create_init_entry(book, item_id, user, "U")
-            History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, old=old, new=new)
-            response = JsonResponse({"message": "OK", "old": old, "new": new}, status=200)
-        case "CREATE":
-            new, smil_debug_info = book.add_to_smil(item_id, data)
-            _, text_id = new["textSrc"].split("#")
-            History.create_init_entry(book, item_id, user, "C")
-            History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, new=new)
-            response = JsonResponse({"message": "OK", "new": new, "textId": text_id}, status=201)
-        case "DELETE":
-            old, smil_debug_info = book.delete_from_smil(item_id, data)
-            History.create_init_entry(book, item_id, user, "D")
-            History.objects.create(book=book, item_id=item_id, user=user, trigger=trigger, type=type, old=old)
-            response = JsonResponse({"message": "OK", "old": old}, status=200)
-        case "MERGE":
-            text_id, old_xhtml, new_xhtml, old_smil, new_smil, xhtml_debug_info, smil_debug_info = book.merge_elements(
-                item_id, data
-            )
-            History.create_init_entry(book, item_id, user, "M")
-            History.objects.create(
-                book=book,
-                item_id=item_id,
-                user=user,
-                trigger=trigger,
-                type=type,
-                old_xhtml=old_xhtml,
-                new_xhtml=new_xhtml,
-                old_smil=old_smil,
-                new_smil=new_smil,
-            )
-            response = JsonResponse({"message": "OK", "textId": text_id}, status=200)
-        case "SPLIT":
-            text_id, old_xhtml, new_xhtml, old_smil, new_smil, xhtml_debug_info, smil_debug_info = book.split_elements(
-                item_id, data
-            )
-            History.create_init_entry(book, item_id, user, "S")
-            History.objects.create(
-                book=book,
-                item_id=item_id,
-                user=user,
-                trigger=trigger,
-                type=type,
-                old_xhtml=old_xhtml,
-                new_xhtml=new_xhtml,
-                old_smil=old_smil,
-                new_smil=new_smil,
-            )
-            response = JsonResponse({"message": "OK", "textId": text_id}, status=200)
-        case other:
-            response = JsonResponse({"message": f"Operation not supported: '{other}'"}, status=400)
-    if getattr(settings, "SERIALIZE_PAYLOADS", False):
-        write_debug_files_to_disk(book, item_id, data, trigger, type, xhtml_debug_info, smil_debug_info)
-    return response
-
-
-def write_debug_files_to_disk(
-    book: Book,
-    item_id: str,
-    data: MergePayload | SplitPayload | ParData,
-    trigger: HistoryTrigger,
-    type: HistoryType,
-    xhtml_debug_info: DebugInfo | None,
-    smil_debug_info: DebugInfo | None,
-) -> None:
-    data_path = book.get_data_path()
-    folder_children: list[re.Match[str]] = list(
-        filter(
-            lambda x: x is not None,
-            (RE_DEBUG_FILE_NAME.match(child.name) for child in data_path.iterdir() if child.is_file()),
-        )
-    )
-    folder_children.sort(key=lambda match: match.group("id"))
-    if len(folder_children) == 0:
-        new_id = 1
-    else:
-        new_id = int(folder_children[-1].group("id")) + 1
-    filename = f"{item_id}_{new_id:04d}_{trigger}{type}.diff"
-    with data_path.joinpath(filename).open("w", encoding="utf-8") as f:
-        f.write(json.dumps(data))
-        f.write("\n")
-        if smil_debug_info is not None:
-            smil_diff = create_unified_diff(smil_debug_info, data_path)
-            f.writelines(smil_diff)
-        if xhtml_debug_info is not None:
-            xhtml_diff = create_unified_diff(xhtml_debug_info, data_path)
-            f.writelines(xhtml_diff)
-
-
-def create_unified_diff(debug_info: DebugInfo, data_path: Path) -> Iterator[str]:
-    rel_path = debug_info.path.relative_to(data_path).as_posix()
-    return unified_diff(
-        debug_info.old_content,
-        debug_info.new_content,
-        f"a/{rel_path}",
-        f"b/{rel_path}",
-        debug_info.old_modified.strftime("%Y-%m-%d %H:%M:%S.%f000 %z"),
-        debug_info.new_modified.strftime("%Y-%m-%d %H:%M:%S.%f000 %z"),
-    )
 
 
 class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
@@ -258,7 +130,7 @@ class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
         context["username"] = self.kwargs["username"]
         context["basename"] = self.kwargs["basename"]
         try:
-            raise_for_permissions(book, self.request.user)
+            raise_for_permissions(book, cast(User, self.request.user))
             context["editable"] = True
         except PermissionDenied:
             context["editable"] = False
@@ -269,7 +141,7 @@ class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
         """Restructure XHTML and SMIL by merging or splitting elements"""
         try:
             book: Book = self.get_object()
-            raise_for_permissions(book, request.user)
+            raise_for_permissions(book, cast(User, request.user))
             item_id = self.kwargs["item_id"]
             payload: BookContentPayload = json.loads(request.body)
             match payload["op"]:
@@ -278,15 +150,17 @@ class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
                     if entry is None:
                         return JsonResponse({"message": "Nothing to undo in history"}, status=400)
                     op, type, data = entry.undo()
-                    return handle_book_content_op(op, "U", type, request.user, book, item_id, data)
+                    return handle_book_content_op(op, "U", type, cast(User, request.user), book, item_id, data)
                 case "REDO":
                     entry = History.get_last_redoable(book, item_id)
                     if entry is None:
                         return JsonResponse({"message": "Nothing to redo in history"}, status=400)
                     op, type, data = entry.redo()
-                    return handle_book_content_op(op, "R", type, request.user, book, item_id, data)
+                    return handle_book_content_op(op, "R", type, cast(User, request.user), book, item_id, data)
                 case other:
-                    return handle_book_content_op(other, "N", OP_MAP[other], request.user, book, item_id, payload)
+                    return handle_book_content_op(
+                        other, "N", OP_TO_TYPE[other], cast(User, request.user), book, item_id, payload
+                    )
         except (AssertionError, ValueError, PermissionDenied) as e:
             return JsonResponse({"message": str(e)}, status=400)
 
@@ -304,7 +178,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
     def setup(self, request, *args, **kwargs):
         # always create temporary files for epub uploads since
         # epubcheck uses file paths
-        request.upload_handlers = [TemporaryFileUploadHandler(request)]
+        request.upload_handlers = [TemporaryFileUploadHandler(request)]  # type: ignore
         super().setup(request, *args, **kwargs)
 
     # https://docs.djangoproject.com/en/5.1/topics/http/file-uploads/#modifying-upload-handlers-on-the-fly
@@ -396,7 +270,7 @@ class DeleteBookView(LoginRequiredMixin, DeleteView):
         basename = self.kwargs["basename"]
         queryset = self.get_queryset()
         book: Book = queryset.get(uploader=uploader, basename=basename)
-        role: Role = self.request.user.role_set.get(book=book)
+        role: Role = self.request.user.role_set.get(book=book)  # type: ignore
         if role.role == "UL":
             return book
         else:
@@ -414,8 +288,8 @@ class DeleteBookView(LoginRequiredMixin, DeleteView):
             is_invalid = True
             form.add_error("title", "Invalid book title")
         if is_invalid:
-            return self.form_invalid(form)
-        return super().form_valid(form)
+            return self.form_invalid(form)  # type: ignore
+        return super().form_valid(form)  # type: ignore
 
 
 class HistoryView(TemplateResponseMixin, AbstractBookDetailView):
@@ -426,7 +300,7 @@ class HistoryView(TemplateResponseMixin, AbstractBookDetailView):
         book: Book = context["object"]
         context["username"] = self.kwargs["username"]
         context["basename"] = self.kwargs["basename"]
-        context["listing"] = book.history_set.order_by("-timestamp").all()
+        context["listing"] = book.history_set.order_by("-timestamp").all()  # type: ignore
         return context
 
 
@@ -505,10 +379,7 @@ class SignupView(CreateView):
     def _is_rate_limit_exceeded(self):
         last_hour = timezone.now() - timedelta(hours=1)
         nr_new_users = User.objects.filter(date_joined__gte=last_hour).count()
-        try:
-            max_new_users = settings.MAX_NEW_USERS_PER_HOUR
-        except AttributeError:
-            max_new_users = self.MAX_NEW_USERS_PER_HOUR
+        max_new_users = getattr(settings, "MAX_NEW_USERS_PER_HOUR", self.MAX_NEW_USERS_PER_HOUR)
         return nr_new_users >= max_new_users
 
 
@@ -527,11 +398,11 @@ class DeleteAccountView(LoginRequiredMixin, DeleteView):
     success_url = reverse_lazy("book_list")
 
     def get_object(self, queryset=None):
-        return self.request.user
+        return cast(User, self.request.user)
 
 
 class ResourceDataView(AbstractBookDetailView):
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # type: ignore
         book: Book = self.get_object()
         rel_path = self.kwargs["path"]
         media_type = book.get_media_type(rel_path)
@@ -549,28 +420,34 @@ class ResourceDataView(AbstractBookDetailView):
 
 
 class CoverImageView(AbstractBookDetailView):
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # type: ignore
         book: Book = self.get_object()
+        cover = cast(ImageFile, book.cover)
         if getattr(settings, "USE_XSENDFILE", False):
-            path = Path(settings.MEDIA_ROOT).joinpath(book.cover.name)
+            path = Path(settings.MEDIA_ROOT).joinpath(cover.name)
             path_val = path.as_posix().encode("utf-8")
             return HttpResponse(
                 content_type="image/jpeg", headers={"X-Sendfile": path_val, "Content-Disposition": "inline"}
             )
         else:
-            return FileResponse(book.cover.open("rb"), content_type="image/jpeg")
+            return FileResponse(cover.open("rb"), content_type="image/jpeg")
 
 
 class EpubDownloadView(AbstractBookDetailView):
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # type: ignore
         book: Book = self.get_object()
         tempdir = TemporaryDirectory()
-        for_reading_system = "for_reading_system" in request.GET
+        if "for_reading_systems" in request.GET:
+            compress_epub_option = CompressToEpubOption.FOR_READING_SYSTEMS
+        elif "without_media_overlays" in request.GET:
+            compress_epub_option = CompressToEpubOption.WITHOUT_MEDIA_OVERLAYS
+        else:
+            compress_epub_option = CompressToEpubOption.NONE
         try:
-            zip_path = book.compress_to_epub(tempdir.name, for_reading_system)
+            zip_path = book.compress_to_epub(tempdir.name, compress_epub_option)
             response = FileResponse(open(zip_path, "rb"), content_type="application/epub+zip")
             # Let Django remove/cleanup temporary directory after response handling
-            response._resource_closers.append(tempdir.cleanup)
+            response._resource_closers.append(tempdir.cleanup)  # type: ignore
             return response
         except Exception as e:
             tempdir.cleanup()
@@ -581,7 +458,7 @@ class ServiceWorkerView(View):
     def get(self, request, *args, **kwargs):
         path = Path(__file__).parent.joinpath("static/epubeditor/sw.js").resolve()
         response = FileResponse(path.open("rb"), content_type="text/javascript")
-        response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Service-Worker-Allowed"] = "/"  # type: ignore
         return response
 
 
@@ -590,36 +467,3 @@ class WorkboxView(View):
         path = Path(__file__).parent.joinpath("static/epubeditor").joinpath(kwargs["filename"]).resolve()
         response = FileResponse(path.open("rb"), content_type="text/javascript")
         return response
-
-
-def call_epubcheck(path_str: str) -> dict[str, Any]:
-    path = Path(path_str)
-    assert path.suffix.lower() == ".epub", "Filename must end with .epub"
-    path = path.resolve()
-    url = f"http://localhost:{EpubeditorConfig.EPUBCHECK_SERVER_PORT}"
-    return post_request(url, path.as_posix().encode())
-
-
-def raise_for_permissions(book: Book, user: User) -> None:
-    if user.is_authenticated:
-        try:
-            role: RoleKey = user.role_set.get(book=book).role
-            if role not in ["UL", "ED"]:
-                raise PermissionDenied("Forbidden")
-        except Role.DoesNotExist:
-            raise PermissionDenied("Forbidden")
-    else:
-        raise PermissionDenied("Forbidden")
-
-
-def read_toc(book: Book, item_id: str) -> tuple[str, str | None, str | None]:
-    toc = book.get_toc_listing()
-    toc_length = len(toc)
-    for i, toc_item in enumerate(toc):
-        if toc_item.id != item_id:
-            continue
-        return (
-            toc_item.text,
-            toc[i - 1].id if 0 <= i - 1 < toc_length else None,
-            toc[i + 1].id if 0 <= i + 1 < toc_length else None,
-        )

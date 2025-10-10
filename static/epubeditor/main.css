@@ -266,22 +266,13 @@ epub-edit {
   flex-wrap: wrap;
   justify-content: flex-start;
   align-items: flex-start;
+  background-color: hsl(240 4.8% 95.9%);
+  padding: var(--sl-spacing-x-small) 0 0 var(--sl-spacing-x-small);
+  border: var(--sl-spacing-x-small) inset hsl(240 4.9% 83.9%);
 
   input {
     font-size: var(--sl-font-size-2x-large);
     width: 5ch;
-  }
-}
-
-.text-box {
-  font-family: "Noto Serif JP", serif;
-
-  padding: var(--sl-spacing-x-small);
-
-  h3, p {
-    line-height: var(--sl-line-height-denser);
-    margin: 0;
-    margin-block-end: var(--sl-spacing-x-small);
   }
 }
 

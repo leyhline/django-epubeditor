@@ -26,6 +26,8 @@
 
 {% block header_right %}
   {% if editable %}
+    <sl-icon-button id="undo-button" name="arrow-counterclockwise" label="undo" disabled></sl-icon-button>
+    <sl-icon-button id="redo-button" name="arrow-clockwise" label="toggle edit mode" disabled></sl-icon-button>
     <sl-icon-button id="edit-mode-toggle" name="pencil" label="toggle edit mode" disabled></sl-icon-button>
   {% endif %}
   <sl-dropdown>

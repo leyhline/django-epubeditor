@@ -168,7 +168,6 @@ export class EpubOverlayEdit extends LitElement {
   }
 
   private merge(isNext: boolean): void {
-    const csrftoken = getCookie("csrftoken")
     const srcId = this.elems?.selected.getAttribute("id") ?? ""
     let otherId: string
     let button: SlIconButton | null
@@ -179,12 +178,12 @@ export class EpubOverlayEdit extends LitElement {
       otherId = this.elems?.prev?.getAttribute("id") ?? ""
       button = this.prevMergeButton
     }
-    if (!this.idParMap || !this.idParMap.has(srcId) || !this.idParMap.has(otherId) || !button || !csrftoken) return
+    if (!this.idParMap || !this.idParMap.has(srcId) || !this.idParMap.has(otherId) || !button) return
     const parData = this.idParMap.get(srcId)!
     const otherParData = this.idParMap.get(otherId)!
     const payload: MergePayload = { op: "MERGE", parId: parData.parId, otherParId: otherParData.parId }
     button.disabled = true
-    void callEndpoint(payload, csrftoken)
+    void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
           const { message, textId } = (await response.json()) as ModifyResponse
@@ -206,13 +205,12 @@ export class EpubOverlayEdit extends LitElement {
   }
 
   private split(splitAfterIndex: number): void {
-    const csrftoken = getCookie("csrftoken")
     const srcId = this.elems?.selected.getAttribute("id") ?? ""
     const parData = this.idParMap?.get(srcId)
-    if (!csrftoken || !this.splitButton || !parData) return
+    if (!this.splitButton || !parData) return
     const payload: SplitPayload = { op: "SPLIT", parId: parData.parId, index: splitAfterIndex }
     this.splitButton.disabled = true
-    void callEndpoint(payload, csrftoken)
+    void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
           const { message, textId } = (await response.json()) as ModifyResponse
@@ -235,10 +233,9 @@ export class EpubOverlayEdit extends LitElement {
   }
 
   private commit(): void {
-    const csrftoken = getCookie("csrftoken")
     const srcId = this.elems?.selected.getAttribute("id") ?? ""
     const parData = this.idParMap?.get(srcId)
-    if (!parData || !csrftoken) return
+    if (!parData) return
     const payload: ModifyPayload = {
       ...parData,
       clipBegin: secondsToClockValue(Number(this.beginInput.value)),
@@ -246,7 +243,7 @@ export class EpubOverlayEdit extends LitElement {
       op: "UPDATE",
     }
     this.disableButtons()
-    void callEndpoint(payload, csrftoken)
+    void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
           const data = (await response.json()) as ModifyResponse
@@ -281,13 +278,12 @@ export class EpubOverlayEdit extends LitElement {
   }
 
   private delete(): void {
-    const csrftoken = getCookie("csrftoken")
     const srcId = this.elems?.selected.getAttribute("id") ?? ""
     const parData = this.idParMap?.get(srcId)
-    if (!parData || !csrftoken) return
+    if (!parData) return
     const payload: ModifyPayload = { ...parData, op: "DELETE" }
     this.deleteButton.disabled = true
-    void callEndpoint(payload, csrftoken)
+    void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
           const { message } = (await response.json()) as ModifyResponse
@@ -309,10 +305,9 @@ export class EpubOverlayEdit extends LitElement {
   }
 
   private create(): void {
-    const csrftoken = getCookie("csrftoken")
     const audioSrc = this.createSelect.value as string
     const audioBuffer = this.audioSrcMap?.get(audioSrc)
-    if (!csrftoken || !this.elems?.textSrcNew || !audioBuffer) return
+    if (!this.elems?.textSrcNew || !audioBuffer) return
     const prevParId = this.elems.prev?.getAttribute("id") ?? ""
     const clipBegin = this.idParMap?.get(prevParId)?.clipEnd
     const nextParId = this.elems.next?.getAttribute("id") ?? ""
@@ -327,7 +322,7 @@ export class EpubOverlayEdit extends LitElement {
       op: "CREATE",
     }
     this.createButton.disabled = true
-    void callEndpoint(payload, csrftoken)
+    void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
           const { message, textId } = (await response.json()) as ModifyResponse
@@ -641,7 +636,7 @@ export function playBuffer(audioContext: AudioContext, buffer: AudioBuffer, begi
   source.start(0, begin, end - begin)
 }
 
-function getCookie(name: string): string | null {
+export function getCookie(name: string): string | null {
   let cookieValue = null
   if (document.cookie && document.cookie !== "") {
     const cookies = document.cookie.split(";")
@@ -658,7 +653,7 @@ function getCookie(name: string): string | null {
 }
 
 /** https://shoelace.style/components/alert */
-function notify(
+export function notify(
   message: string,
   variant: "primary" | "success" | "neutral" | "warning" | "danger",
   icon: "exclamation-octagon" | "info-circle",
@@ -702,7 +697,7 @@ function notify(
  * We can't use the alert component in this case, so we need to create a dialog
  * for nicer error messages.
  */
-function showErrorDialog(html: string, label?: string): void {
+export function showErrorDialog(html: string, label?: string): void {
   const errorDialog = document.getElementById("error-dialog") as SlDialog | null
   if (!errorDialog) {
     notify(html, "danger", "exclamation-octagon", 5000)
@@ -862,10 +857,11 @@ function createMergeButtons(
   return [prevMergeButton, nextMergeButton]
 }
 
-async function callEndpoint(
-  payload: ModifyPayload | MergePayload | SplitPayload | HistoryPayload,
-  csrftoken: string,
+export async function callEndpoint(
+  payload: ModifyPayload | MergePayload | SplitPayload | HistoryPayload
 ): Promise<Response> {
+  const csrftoken = getCookie("csrftoken")
+  if (!csrftoken) throw Error("Could not read CSRF token from document")
   return fetch(window.location.href, {
     method: "POST",
     headers: {
