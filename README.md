@@ -1,4 +1,4 @@
-# Django EPUB Editor
+# EPUB3 Editor
 
 A django app for viewing and editing [EPUB 3](https://www.w3.org/TR/epub-33/) files.
 Focus is on media overlays. For everything else, there are better tools out there.

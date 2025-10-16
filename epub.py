@@ -1,12 +1,14 @@
-import math
 import re
+import sys
 from collections.abc import Container, Iterator
 from copy import deepcopy
+from datetime import datetime, timezone
 from itertools import pairwise
 from pathlib import Path
-from typing import NamedTuple, TypedDict
+from typing import Final, NamedTuple, TypedDict
 from xml.etree.ElementTree import Element, SubElement
 
+from epubeditor import TITLE, VERSION
 from epubeditor.xhtml import OpfTree, SmilTree, XhtmlTree, deepcopy_parent_element
 
 Timing = tuple[float, float]
@@ -25,6 +27,7 @@ class ParData(TypedDict):
     clipEnd: str
 
 
+TITLE_VERSION: Final = f"{TITLE} version"
 RE_PAR_ID_PART = re.compile(r"""(?P<alpha>[A-Za-z]*)(?P<num>[0-9]+)""")
 RE_CLOCK = re.compile(r"""^(?:(?P<hours>\d+):)??(?:(?P<minutes>\d+):)??(?P<seconds>\d+)(?P<fraction>\.\d+)?$""")
 
@@ -84,6 +87,7 @@ def build_new_id(prev_id: str, next_id: str | None) -> str:
     next_parts = None if next_id is None else next_id.split("-")
     if next_parts is None or len(next_parts) < len(parts):
         last_part_match = parts_matches[-1]
+        assert last_part_match is not None
         last_part = last_part_match.group("alpha") + str(int(last_part_match.group("num")) + 1)
         joined_parts = "-".join(parts[:-1])
         if joined_parts:
@@ -93,9 +97,11 @@ def build_new_id(prev_id: str, next_id: str | None) -> str:
     else:
         last_part_index = len(parts_matches) - 1
         last_part_match = parts_matches[last_part_index]
+        assert last_part_match is not None
         last_part_num = int(last_part_match.group("num"))
         next_parts_matches = [RE_PAR_ID_PART.match(part) for part in next_parts]
         next_part_match = next_parts_matches[last_part_index]
+        assert next_part_match is not None
         next_part_num = int(next_part_match.group("num"))
         if next_part_num - last_part_num > 1:
             last_part = last_part_match.group("alpha") + str(last_part_num + 1)
@@ -141,21 +147,21 @@ def seconds_to_clock_value(sec: float) -> str:
 
 def extract_par_data(par: Element, namespaces) -> ParData:
     text = par.find("text", namespaces=namespaces)
+    assert text is not None
     audio = par.find("audio", namespaces=namespaces)
-    par_id: str = par.get("id")
+    assert audio is not None
+    par_id = par.get("id")
     assert par_id, "missing id attribute for par element"
-    text_src: str = text.get("src")
+    text_src = text.get("src")
     assert text_src, "missing src attribute for text element under id='{par_id}'"
-    audio_src: str = audio.get("src")
+    audio_src = audio.get("src")
     assert audio_src, "missing src attribute for audio element under id='{par_id}'"
-    clip_begin: str = audio.get("clipBegin")
+    clip_begin = audio.get("clipBegin")
     assert clip_begin, "missing clipBegin attribute for audio element under id='{par_id}'"
-    if not RE_CLOCK.match(clip_begin):
-        raise ValueError(f"Invalid clipBegin value '{clip_begin}' for audio element under id='{par_id}'")
-    clip_end: str = audio.get("clipEnd")
+    assert RE_CLOCK.match(clip_begin), f"Invalid clipBegin value '{clip_begin}' for audio element under id='{par_id}'"
+    clip_end = audio.get("clipEnd")
     assert clip_end, "missing clipEnd attribute for audio element under id='{par_id}'"
-    if not RE_CLOCK.match(clip_end):
-        raise ValueError(f"Invalid clipEnd value '{clip_end}' for audio element under id='{par_id}'")
+    assert RE_CLOCK.match(clip_end), f"Invalid clipEnd value '{clip_end}' for audio element under id='{par_id}'"
     return {
         "parId": par_id,
         "textSrc": text_src,
@@ -168,8 +174,7 @@ def extract_par_data(par: Element, namespaces) -> ParData:
 def scan_manifest_for_property(tree: OpfTree, prop: str) -> Element:
     namespaces = tree.register_namespaces()
     manifest = tree.find("manifest", namespaces=namespaces)
-    if not manifest:
-        raise KeyError(f"no 'manifest' element in '{tree}'")
+    assert manifest is not None, f"no 'manifest' element in '{tree}'"
     for item in manifest:
         properties = item.get("properties")
         if not properties:
@@ -180,47 +185,41 @@ def scan_manifest_for_property(tree: OpfTree, prop: str) -> Element:
     raise KeyError(f"'no item with property '{prop}' in '{manifest}'")
 
 
-def iterate_manifest_items(tree: OpfTree, allowed_media_types: Container[str] = None) -> Iterator[Element]:
+def iterate_manifest_items(tree: OpfTree, allowed_media_types: Container[str] | None = None) -> Iterator[Element]:
     namespaces = tree.register_namespaces()
     manifest = tree.find("manifest", namespaces=namespaces)
-    if not manifest:
-        raise KeyError(f"no 'manifest' element in '{tree}'")
+    assert manifest is not None, f"no 'manifest' element in '{tree}'"
     for item in manifest:
         if allowed_media_types is not None and item.get("media-type") not in allowed_media_types:
             continue
         yield item
 
 
-def add_manifest_item(tree: OpfTree, tag: str, attrib: dict[str, str]) -> None:
-    namespaces = tree.register_namespaces()
-    root = tree.getroot()
-    manifest = root.find("manifest", namespaces=namespaces)
-    if not manifest:
-        raise KeyError(f"no 'manifest' element in '{root}'")
-    last_manifest_child: Element | None = None
-    if len(manifest) > 0:
-        last_manifest_child = manifest[-1]
-    new_manifest_child = SubElement(manifest, tag, attrib)
-    if last_manifest_child is None:
-        new_manifest_child.tail = manifest.text
+def add_subelement(parent: Element, tag: str, attrib: dict[str, str]) -> Element:
+    """Helper function to add a subelement with correct indent/tail"""
+    last_child: Element | None = None
+    if len(parent) > 0:
+        last_child = parent[-1]
+    new_child = SubElement(parent, tag, attrib)
+    if last_child is None:
+        new_child.tail = parent.text
     else:
-        new_manifest_child.tail = last_manifest_child.tail
-        last_manifest_child.tail = manifest.text
+        new_child.tail = last_child.tail
+        last_child.tail = parent.text
+    return new_child
 
 
 def iterate_metadata_items(tree: OpfTree) -> Iterator[Element]:
     namespaces = tree.register_namespaces()
     metadata = tree.find("metadata", namespaces=namespaces)
-    if not metadata:
-        raise KeyError(f"no 'metadata' element in '{tree}'")
+    assert metadata is not None, f"no 'metadata' element in '{tree}'"
     for item in metadata:
         yield item
 
 
 def get_path_from_href(item: Element, rootfile_path: Path) -> Path:
     href = item.get("href")
-    if not href:
-        raise KeyError(f"no 'href' attribute in '{item}'")
+    assert href is not None, f"no 'href' attribute in '{item}'"
     path = rootfile_path.parent.joinpath(href)
     if not path.exists():
         raise FileNotFoundError(f"file '{path}' not found")
@@ -241,9 +240,11 @@ def get_toc_path(tree: OpfTree, rootfile_path: Path) -> Path:
 
 
 def read_resource_listing(tree: OpfTree) -> list[ResourceListingItem]:
-    listing = [
-        ResourceListingItem(item.get("href"), item.attrib) for item in iterate_manifest_items(tree, CORE_MEDIA_TYPES)
-    ]
+    listing = []
+    for item in iterate_manifest_items(tree, CORE_MEDIA_TYPES):
+        href = item.get("href")
+        if href is not None:
+            listing.append(ResourceListingItem(href, item.attrib))
     return listing
 
 
@@ -252,12 +253,12 @@ def read_toc(rootfile_tree: OpfTree, toc_tree: XhtmlTree, toc_src: str) -> list[
         item.get("href"): (item.get("id"), item.get("media-overlay"))
         for item in iterate_manifest_items(rootfile_tree, ("application/xhtml+xml",))
         if item.get("id") and item.get("href")
-    }
+    }  # type: ignore
     id_href_dict: dict[str, str] = {
         item.get("id"): item.get("href")
         for item in iterate_manifest_items(rootfile_tree, ("application/smil+xml",))
         if item.get("id") and item.get("href")
-    }
+    }  # type: ignore
     namespaces = toc_tree.register_namespaces()
     anchors = toc_tree.findall(".//nav[@epub:type='toc']/.//a", namespaces)
     listing: list[TocListingItem] = []
@@ -265,7 +266,7 @@ def read_toc(rootfile_tree: OpfTree, toc_tree: XhtmlTree, toc_src: str) -> list[
         href = anchor.get("href")
         if toc_src:
             href = f"{toc_src}/{href}"
-        if href in href_id_dict:
+        if href in href_id_dict and anchor.text:
             item_id, media_overlay_id = href_id_dict[href]
             listing.append(TocListingItem(item_id, anchor.text, media_overlay_id, id_href_dict.get(media_overlay_id)))
     return listing
@@ -277,6 +278,7 @@ def read_item_href(tree: OpfTree, item_id: str) -> str:
             href = item.get("href")
             assert href, f"missing href: {item}"
             return href
+    raise KeyError(f"'no item with id={item_id} in manifest")
 
 
 def read_xml_hrefs(tree: OpfTree, item_id: str) -> tuple[str, str | None, str | None]:
@@ -318,20 +320,33 @@ def build_smil_par(data: SpanData, text_src: str, audio_src: str, index: int) ->
 def merge_smil(tree: SmilTree, par_id: str, other_par_id: str) -> tuple[str, str, str, Element, Element]:
     namespaces = tree.register_namespaces()
     parent = tree.find(".//par[@id='%s']/.." % par_id, namespaces=namespaces)
+    assert parent is not None
     for first, second in pairwise(parent):
         first_id = first.get("id")
+        assert first_id is not None
         second_id = second.get("id")
+        assert second_id is not None
         if (first_id == par_id and second_id == other_par_id) or (first_id == other_par_id and second_id == par_id):
             first_audio = first.find("audio", namespaces=namespaces)
             second_audio = second.find("audio", namespaces=namespaces)
-            assert first_audio.get("src") and first_audio.get("src") == second_audio.get("src")
+            assert (
+                first_audio is not None
+                and second_audio is not None
+                and first_audio.get("src")
+                and first_audio.get("src") == second_audio.get("src")
+            )
             old_parent = deepcopy_parent_element(parent, False, (first_id, second_id))
-            first_audio.set("clipEnd", second_audio.get("clipEnd"))
+            second_audio_clip_end = second_audio.get("clipEnd")
+            assert second_audio_clip_end is not None
+            first_audio.set("clipEnd", second_audio_clip_end)
             parent.remove(second)
             first_text = first.find("text", namespaces=namespaces)
             second_text = second.find("text", namespaces=namespaces)
-            first_text_src, first_text_id = first_text.get("src").split("#")
-            second_text_src, second_text_id = second_text.get("src").split("#")
+            assert first_text is not None and second_text is not None
+            first_text_src, second_text_src = first_text.get("src"), second_text.get("src")
+            assert first_text_src is not None and second_text_src is not None
+            first_text_src, first_text_id = first_text_src.split("#")
+            second_text_src, second_text_id = second_text_src.split("#")
             assert first_text_src == second_text_src
             new_parent = deepcopy_parent_element(parent, False, (first_id,))
             return first_text_src, first_text_id, second_text_id, old_parent, new_parent
@@ -341,9 +356,11 @@ def merge_smil(tree: SmilTree, par_id: str, other_par_id: str) -> tuple[str, str
 def merge_xhtml(tree: XhtmlTree, text_id: str, other_text_id: str) -> tuple[Element, Element]:
     namespaces = tree.register_namespaces()
     parent = tree.find(".//span[@id='%s']/.." % text_id, namespaces=namespaces)
+    assert parent is not None
     for first, second in pairwise(parent):
         first_id = first.get("id")
         second_id = second.get("id")
+        assert first_id is not None and second_id is not None
         if (first_id == text_id and second_id == other_text_id) or (first_id == other_text_id and second_id == text_id):
             assert not first.tail, f"No text between elements to merge allowed, but got: {first.tail}"
             old_parent = deepcopy_parent_element(parent, True, (first_id, second_id))
@@ -353,8 +370,10 @@ def merge_xhtml(tree: XhtmlTree, text_id: str, other_text_id: str) -> tuple[Elem
                         first[-1].tail = second.text
                     else:
                         first[-1].tail += second.text
-                else:
+                elif first.text is not None:
                     first.text += second.text
+                else:
+                    raise ValueError(f"Both elements must have text: '{first}' and '{second}'")
             for child in second:
                 first.append(child)
             first.tail = second.tail
@@ -367,8 +386,12 @@ def merge_xhtml(tree: XhtmlTree, text_id: str, other_text_id: str) -> tuple[Elem
 def get_text_href_from_smil(tree: SmilTree, par_id: str) -> tuple[str, str]:
     namespaces = tree.register_namespaces()
     par_elem = tree.find(".//par[@id='%s']" % par_id, namespaces=namespaces)
+    assert par_elem is not None
     text_elem = par_elem.find("text", namespaces=namespaces)
-    href, fragment = text_elem.get("src").split("#")
+    assert text_elem is not None
+    text_src = text_elem.get("src")
+    assert text_src is not None
+    href, fragment = text_src.split("#")
     return href, fragment
 
 
@@ -376,7 +399,7 @@ def extract_text_from_elem_list(elem_list: list[Element | str]) -> str:
     skip_tags = {"{http://www.w3.org/1999/xhtml}rp", "{http://www.w3.org/1999/xhtml}rt"}
     text_parts: list[str] = []
 
-    def extract_text(elem: Element):
+    def extract_text(elem: Element) -> None:
         if elem.text is not None:
             text_parts.append(elem.text.strip())
         for elem_child in elem:
@@ -412,7 +435,9 @@ def append_from_elem_list(elem: Element, elem_list: list[Element | str]) -> None
             before_sub_elem.tail += x
 
 
-def split_element(elem: Element, split_index: int = math.inf) -> tuple[list[str | Element], list[str | Element], int]:
+def split_element(
+    elem: Element, split_index: int = sys.maxsize
+) -> tuple[list[str | Element], list[str | Element], int]:
     before: list[str | Element] = []
     after: list[str | Element] = []
     counter = 0
@@ -426,9 +451,11 @@ def split_element(elem: Element, split_index: int = math.inf) -> tuple[list[str 
     for sub_elem in elem:
         if counter <= split_index:
             before.append(deepcopy(sub_elem))
+            assert isinstance(before[-1], Element)
             before[-1].tail = None
         else:
             after.append(deepcopy(sub_elem))
+            assert isinstance(after[-1], Element)
             after[-1].tail = None
         counter += 1
         if sub_elem.tail is not None:
@@ -444,6 +471,7 @@ def split_element(elem: Element, split_index: int = math.inf) -> tuple[list[str 
 def split_xhtml(tree: XhtmlTree, text_id: str, split_index: int) -> tuple[str, str, str, Element, Element]:
     namespaces = tree.register_namespaces()
     parent = tree.find(".//span[@id='%s']/.." % text_id, namespaces=namespaces)
+    assert parent is not None
     child_elem: Element | None = None
     child_index = 0
     for i, child in enumerate(parent):
@@ -453,6 +481,7 @@ def split_xhtml(tree: XhtmlTree, text_id: str, split_index: int) -> tuple[str, s
             break
     assert child_elem is not None
     child_id = child_elem.get("id")
+    assert child_id is not None
     old_parent = deepcopy_parent_element(parent, True, (child_id,))
     before, after, _ = split_element(child_elem, split_index)
 
@@ -493,6 +522,7 @@ def split_smil(
 ) -> tuple[Element, Element]:
     namespaces = tree.register_namespaces()
     parent = tree.find(".//par[@id='%s']/.." % par_id, namespaces=namespaces)
+    assert parent is not None
     child_elem: Element | None = None
     child_index = 0
     for i, child in enumerate(parent):
@@ -502,10 +532,16 @@ def split_smil(
             break
     assert child_elem is not None
     audio = child_elem.find("audio", namespaces=namespaces)
-    begin = clock_value_to_seconds(audio.get("clipBegin"))
-    end = clock_value_to_seconds(audio.get("clipEnd"))
+    assert audio is not None
+    clip_begin = audio.get("clipBegin")
+    assert clip_begin is not None
+    begin = clock_value_to_seconds(clip_begin)
+    clip_end = audio.get("clipEnd")
+    assert clip_end is not None
+    end = clock_value_to_seconds(clip_end)
     diff_s = (end - begin) / (text1_length + text2_length) * text1_length
     child_id = child_elem.get("id")
+    assert child_id is not None
     old_parent = deepcopy_parent_element(parent, False, (child_id,))
     next_elem_id: str | None = None
     do_take_next_id = False
@@ -523,13 +559,16 @@ def split_smil(
     new_par_id = build_new_id(child_id, next_elem_id)
     new_par_elem = Element("par", {"id": new_par_id})
     new_text = SubElement(new_par_elem, "text", {"src": new_text_src})
-    new_audio = SubElement(
-        new_par_elem, "audio", {"src": audio.get("src"), "clipBegin": split_time, "clipEnd": audio.get("clipEnd")}
-    )
+    audio_src = audio.get("src")
+    assert audio_src is not None
+    new_audio = SubElement(new_par_elem, "audio", {"src": audio_src, "clipBegin": split_time, "clipEnd": clip_end})
     new_par_elem.text = child_elem.text
     new_par_elem.tail = child_elem.tail
-    new_text.tail = child_elem.find("text", namespaces=namespaces).tail
-    new_audio.tail = child_elem.find("audio", namespaces=namespaces).tail
+    child_text = child_elem.find("text", namespaces=namespaces)
+    child_audio = child_elem.find("audio", namespaces=namespaces)
+    assert child_text is not None and child_audio is not None
+    new_text.tail = child_text.tail
+    new_audio.tail = child_audio.tail
     parent.insert(child_index + 1, new_par_elem)
     audio.set("clipEnd", split_time)
     new_parent = deepcopy_parent_element(parent, False, (child_id, new_par_id))
@@ -624,3 +663,30 @@ def remove_media_overlays(tree: OpfTree) -> None:
                     del element.attrib["media-overlay"]
         for child in manifest_children_to_remove:
             manifest.remove(child)
+
+
+def update_last_modified(tree: OpfTree) -> None:
+    """https://www.w3.org/TR/epub-33/#sec-metadata-last-modified"""
+    namespaces = tree.register_namespaces()
+    metadata = tree.find("metadata", namespaces=namespaces)
+    assert metadata is not None
+    app_info_elem: Element | None = None
+    last_modified_elem: Element | None = None
+    for element in metadata.iterfind("meta", namespaces=namespaces):
+        name = element.get("name")
+        if name == TITLE_VERSION:
+            app_info_elem = element
+            continue
+        property = element.get("property")
+        if property == "dcterms:modified":
+            last_modified_elem = element
+            continue
+        if app_info_elem is not None and last_modified_elem is not None:
+            break
+    if app_info_elem is None:
+        add_subelement(metadata, "meta", {"name": TITLE_VERSION, "content": VERSION})
+    else:
+        app_info_elem.set("content", VERSION)
+    if last_modified_elem is None:
+        last_modified_elem = add_subelement(metadata, "meta", {"property": "dcterms:modified"})
+    last_modified_elem.text = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

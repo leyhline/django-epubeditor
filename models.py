@@ -1,7 +1,6 @@
 import os
 import shutil
-from datetime import datetime
-from datetime import timezone as tz
+from datetime import datetime, timezone
 from enum import Enum
 from os import PathLike
 from pathlib import Path
@@ -14,7 +13,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
 from django.dispatch import receiver
-from django.utils import timezone
+from django.utils import timezone as tz
 from PIL import Image
 
 from epubeditor.epub import (
@@ -39,6 +38,7 @@ from epubeditor.epub import (
     split_element,
     split_smil,
     split_xhtml,
+    update_last_modified,
 )
 from epubeditor.fields import SmilField, XhtmlField
 from epubeditor.xhtml import (
@@ -171,6 +171,7 @@ class Book(models.Model):
             if option == CompressToEpubOption.WITHOUT_MEDIA_OVERLAYS:
                 rootfile_tree = OpfTree(file=rootfile_path)
                 remove_media_overlays(rootfile_tree)
+                update_last_modified(rootfile_tree)
                 zipfile.writestr(rootfile_path.relative_to(data_path).as_posix(), rootfile_tree.tostring())
             else:
                 zipfile.write(rootfile_path, rootfile_path.relative_to(data_path))
@@ -278,7 +279,9 @@ class Book(models.Model):
         return lock
 
     def modify_smil(self, item_id: str, new: ParData, do_serialize_payloads: bool) -> tuple[ParData, DebugInfo | None]:
+        root_path = self.get_rootfile_path()
         smil_path = self.get_xhtml_path(item_id, True)
+        root_lock = self.lock(root_path)
         lock = self.lock(smil_path)
         try:
             debug_info: DebugInfo | None = None
@@ -297,14 +300,20 @@ class Book(models.Model):
             if do_serialize_payloads:
                 new_content, new_modified = read_file_for_debug(smil_path)
                 debug_info = DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)  # type: ignore
+            root_tree = OpfTree(file=root_path)
+            update_last_modified(root_tree)
+            root_tree.write(root_path)
             return old, debug_info
         finally:
+            root_lock.unlock()
             lock.unlock()
 
     def delete_from_smil(
         self, item_id: str, old: ParData, do_serialize_payloads: bool
     ) -> tuple[ParData, DebugInfo | None]:
+        root_path = self.get_rootfile_path()
         smil_path = self.get_xhtml_path(item_id, True)
+        root_lock = self.lock(root_path)
         lock = self.lock(smil_path)
         try:
             debug_info: DebugInfo | None = None
@@ -321,12 +330,18 @@ class Book(models.Model):
             if do_serialize_payloads:
                 new_content, new_modified = read_file_for_debug(smil_path)
                 debug_info = DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)  # type: ignore
+            root_tree = OpfTree(file=root_path)
+            update_last_modified(root_tree)
+            root_tree.write(root_path)
             return old, debug_info
         finally:
+            root_lock.unlock()
             lock.unlock()
 
     def add_to_smil(self, item_id: str, new: ParData, do_serialize_payloads: bool) -> tuple[ParData, DebugInfo | None]:
+        root_path = self.get_rootfile_path()
         smil_path = self.get_xhtml_path(item_id, True)
+        root_lock = self.lock(root_path)
         lock = self.lock(smil_path)
         try:
             debug_info: DebugInfo | None = None
@@ -339,15 +354,21 @@ class Book(models.Model):
             new_content, new_modified = read_file_for_debug(smil_path)
             if do_serialize_payloads:
                 debug_info = DebugInfo(smil_path, old_content, new_content, old_modified, new_modified)  # type: ignore
+            root_tree = OpfTree(file=root_path)
+            update_last_modified(root_tree)
+            root_tree.write(root_path)
             return new, debug_info
         finally:
+            root_lock.unlock()
             lock.unlock()
 
     def merge_elements(
         self, item_id: str, payload: MergePayload, do_serialize_payloads: bool
     ) -> tuple[str, Element, Element, Element, Element, DebugInfo | None, DebugInfo | None]:
+        root_path = self.get_rootfile_path()
         xhtml_path = self.get_xhtml_path(item_id, False)
         smil_path = self.get_xhtml_path(item_id, True)
+        root_lock = self.lock(root_path)
         xhtml_lock = self.lock(xhtml_path)
         smil_lock = self.lock(smil_path)
         try:
@@ -376,6 +397,9 @@ class Book(models.Model):
                 xhtml_debug_info = DebugInfo(
                     xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified  # type: ignore
                 )
+            root_tree = OpfTree(file=root_path)
+            update_last_modified(root_tree)
+            root_tree.write(root_path)
             return (
                 text_id,
                 old_xhtml,
@@ -386,14 +410,17 @@ class Book(models.Model):
                 smil_debug_info,
             )
         finally:
+            root_lock.unlock()
             xhtml_lock.unlock()
             smil_lock.unlock()
 
     def split_elements(
         self, item_id: str, payload: SplitPayload, do_serialize_payloads: bool
     ) -> tuple[str, Element, Element, Element, Element, DebugInfo | None, DebugInfo | None]:
+        root_path = self.get_rootfile_path()
         xhtml_path = self.get_xhtml_path(item_id, False)
         smil_path = self.get_xhtml_path(item_id, True)
+        root_lock = self.lock(root_path)
         xhtml_lock = self.lock(xhtml_path)
         smil_lock = self.lock(smil_path)
         try:
@@ -423,24 +450,28 @@ class Book(models.Model):
                 xhtml_debug_info = DebugInfo(
                     xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified  # type: ignore
                 )
+            root_tree = OpfTree(file=root_path)
+            update_last_modified(root_tree)
+            root_tree.write(root_path)
             return text_id, old_xhtml, new_xhtml, old_smil, new_smil, xhtml_debug_info, smil_debug_info
         finally:
+            root_lock.unlock()
             xhtml_lock.unlock()
             smil_lock.unlock()
 
 
 @receiver(models.signals.post_delete, sender=Book)
-def delete_book_data(sender, instance: Book, **kwargs):
+def delete_book_data(sender, instance: Book, **kwargs) -> None:
     data_path = instance.get_data_path()
     if data_path.exists():
         shutil.rmtree(data_path)
-    if instance.cover.name:
-        Path(instance.cover.path).unlink(missing_ok=True)
+    if instance.cover.name:  # type: ignore
+        Path(instance.cover.path).unlink(missing_ok=True)  # type: ignore
 
 
 @receiver(models.signals.pre_delete, sender=User)
-def delete_uploaded_books(sender, instance: User, **kwargs):
-    uploaded_books = instance.book_set.filter(role__role="UL")
+def delete_uploaded_books(sender, instance: User, **kwargs) -> None:
+    uploaded_books = instance.book_set.filter(role__role="UL")  # type: ignore
     data_path_parents: list[Path] = [book.get_data_path().parent for book in uploaded_books]
     uploaded_books.delete()
     if len(data_path_parents) > 0:
@@ -603,11 +634,12 @@ class FileLock(models.Model):
         under very high load.
         """
         if self.locked:
-            while (timezone.now() - self.timestamp).total_seconds() < self.MAX_LOCK_TIME_S:
+            assert self.timestamp is not None
+            while (tz.now() - self.timestamp).total_seconds() < self.MAX_LOCK_TIME_S:
                 sleep(1)
                 self.refresh_from_db()
         self.locked = True
-        self.timestamp = timezone.now()
+        self.timestamp = tz.now()
         self.save(update_fields=["locked", "timestamp"])
 
     def unlock(self):
@@ -616,7 +648,7 @@ class FileLock(models.Model):
 
 
 def read_file_for_debug(path: Path) -> tuple[list[str], datetime]:
-    modified = datetime.fromtimestamp(path.stat(follow_symlinks=False).st_mtime, tz.utc)
+    modified = datetime.fromtimestamp(path.stat(follow_symlinks=False).st_mtime, timezone.utc)
     with path.open("r", encoding="utf-8") as f:
         content = [line for line in f]
     return content, modified

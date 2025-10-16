@@ -1,6 +1,6 @@
 {
-  "name": "epubeditor",
-  "version": "1.0.0",
+  "name": "epub3editor",
+  "version": "0.1.0",
   "description": "",
   "scripts": {
     "build": "rollup --config",

@@ -1,7 +1,7 @@
 {
   "id": "epubeditor",
-  "name": "EPUB Editor",
-  "short_name": "EPUB Editor",
+  "name": "EPUB3 Editor",
+  "short_name": "EPUB3 Editor",
   "description": "EPUB 3 editor with focus on media overlay editing",
   "start_url": "/",
   "display_override": ["window-controls-overlay"],
