@@ -13,6 +13,7 @@
       "justMyCode": true,
       "autoStartBrowser": false,
       "program": "manage.py",
+      "cwd": "${workspaceFolder}/..",
       "consoleName": "django"
     },
     {
@@ -24,6 +25,7 @@
       "justMyCode": true,
       "autoStartBrowser": false,
       "program": "manage.py",
+      "cwd": "${workspaceFolder}/..",
       "consoleName": "epubcheck"
     },
     {
@@ -35,6 +37,7 @@
       "justMyCode": true,
       "autoStartBrowser": false,
       "program": "manage.py",
+      "cwd": "${workspaceFolder}/..",
       "consoleName": "test"
     }
   ]

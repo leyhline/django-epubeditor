@@ -9,30 +9,14 @@
         "isDefault": true
       },
       "problemMatcher": [],
-      "label": "build",
-      "options": {
-        "cwd": "${workspaceFolder}/epubeditor"
-      }
+      "label": "build"
     },
     {
       "type": "npm",
       "script": "watch",
       "group": "build",
       "problemMatcher": [],
-      "label": "watch",
-      "options": {
-        "cwd": "${workspaceFolder}/epubeditor"
-      }
-    },
-    {
-      "label": "django test",
-      "type": "shell",
-      "command": "${command:python.interpreterPath}",
-      "args": ["manage.py", "test"],
-      "group": {
-        "kind": "test",
-        "isDefault": true
-      }
+      "label": "watch"
     }
   ]
 }

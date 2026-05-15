@@ -38,7 +38,10 @@ def to_text(element: Element) -> str:
 
 @register.filter
 def split_fragment(path: str) -> str:
-    fragment = path.rsplit("#", 1)[1]
+    split = path.rsplit("#", 1)
+    if len(split) < 2:
+        return ""
+    fragment = split[1]
     return fragment
 
 

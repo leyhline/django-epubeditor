@@ -108,8 +108,12 @@ export class EpubOverlayEdit extends LitElement {
   @query("#waveform-target") private waveformCanvas?: HTMLCanvasElement
 
   private validateInput(event: SlInputEvent): void {
-    this.revertButton.disabled = false
     const inputElem = event.target as SlInput
+    this.validateInputOfElement(inputElem)
+  }
+
+  private validateInputOfElement(inputElem: SlInput): void {
+    this.revertButton.disabled = false
     const isNumber = inputElem.value && !isNaN(Number(inputElem.value))
     if (isNumber) {
       inputElem.setCustomValidity("")
@@ -128,7 +132,7 @@ export class EpubOverlayEdit extends LitElement {
     const seconds = Number(inputElem.value)
     const prevEndSeconds = clockValueToSeconds(prevPar.clipEnd)
     if (seconds < prevEndSeconds) {
-      inputElem.value = clockValueToSeconds(prevPar.clipEnd).toString()
+      inputElem.value = prevEndSeconds.toString()
     }
   }
 
@@ -140,7 +144,7 @@ export class EpubOverlayEdit extends LitElement {
     const seconds = Number(inputElem.value)
     const nextBeginSeconds = clockValueToSeconds(nextPar.clipBegin)
     if (seconds > nextBeginSeconds) {
-      inputElem.value = clockValueToSeconds(nextPar.clipBegin).toString()
+      inputElem.value = nextBeginSeconds.toString()
     }
   }
 
@@ -149,8 +153,8 @@ export class EpubOverlayEdit extends LitElement {
     const parData = this.idParMap?.get(srcId)
     if (!parData) return
     const buffer = this.audioSrcMap?.get(parData.audioSrc)
-    const begin = clockValueToSeconds(this.beginInput.value)
-    const end = clockValueToSeconds(this.endInput.value)
+    const begin = Number(this.beginInput.value)
+    const end = Number(this.endInput.value)
     if (!this.audioContext || !buffer) return
     playBuffer(this.audioContext, buffer, begin, end)
   }
@@ -357,6 +361,35 @@ export class EpubOverlayEdit extends LitElement {
     )
   }
 
+  private updateWaveformEvents(beginX: number, endX: number): void {
+    if (!this.waveformCanvas) return
+    this.waveformCanvas.onclick = (event) => {
+      if (!this.waveformCanvas) return
+      const xPos = event.x
+      const begin = Number(this.beginInput.value)
+      const end = Number(this.endInput.value)
+      let newSeconds = begin + ((xPos - beginX) * (end - begin)) / (endX - beginX)
+      let inputElem: SlInput
+      if (xPos < this.waveformCanvas.width / 2) {
+        inputElem = this.beginInput
+        const prevPar = this.idParMap?.get(this.elems?.prev?.getAttribute("id") ?? "")
+        if (prevPar) {
+          const prevEndSeconds = clockValueToSeconds(prevPar.clipEnd)
+          if (newSeconds < prevEndSeconds) newSeconds = prevEndSeconds
+        }
+      } else {
+        inputElem = this.endInput
+        const nextPar = this.idParMap?.get(this.elems?.next?.getAttribute("id") ?? "")
+        if (nextPar) {
+          const nextBeginSeconds = clockValueToSeconds(nextPar.clipBegin)
+          if (newSeconds > nextBeginSeconds) newSeconds = nextBeginSeconds
+        }
+      }
+      inputElem.value = newSeconds.toFixed(2)
+      this.validateInputOfElement(inputElem)
+    }
+  }
+
   protected firstUpdated(): void {
     this.registerAdjustCanvasWidthEvent()
   }
@@ -429,9 +462,9 @@ export class EpubOverlayEdit extends LitElement {
       ;[samples, max] = downmixToMono(buffer)
       this.samplesSrcMap.set(parData.audioSrc, [samples, max])
     }
-    const begin = clockValueToSeconds(this.beginInput.value)
-    const end = clockValueToSeconds(this.endInput.value)
-    drawSelection(
+    const begin = Number(this.beginInput.value)
+    const end = Number(this.endInput.value)
+    const [beginX, endX] = drawSelection(
       this.renderContext,
       samples,
       max,
@@ -441,6 +474,7 @@ export class EpubOverlayEdit extends LitElement {
       removeRuby(this.elems.selected),
       this.audioContext.sampleRate,
     )
+    this.updateWaveformEvents(beginX, endX)
   }
 
   private addMergeButtons(): void {
@@ -527,7 +561,7 @@ export class EpubOverlayEdit extends LitElement {
     if (!this.elems) {
       return nothing
     }
-    if (this.elems.textSrcNew) {
+    if (this.elems.textSrcNew && this.elems.audioSrcNew) {
       return html`<div class="epub-overlay-edit-container">
         <sl-tooltip placement="top" content="${this.elems.textSrcNew}">
           <sl-input pill disabled value="${this.elems.textSrcNew}" size="small"></sl-input>
@@ -565,7 +599,7 @@ export class EpubOverlayEdit extends LitElement {
             ?disabled=${isDisabled}
             value="${begin}"
             type="number"
-            step="0.05"
+            step="0.01"
             @sl-input="${this.validateInput}"
             @sl-change="${this.restoreBeginOnOverlap}"
             size="small"
@@ -577,7 +611,7 @@ export class EpubOverlayEdit extends LitElement {
             ?disabled=${isDisabled}
             value="${end}"
             type="number"
-            step="0.05"
+            step="0.01"
             @sl-input="${this.validateInput}"
             @sl-change="${this.restoreEndOnOverlap}"
             size="small"
@@ -622,9 +656,15 @@ export function clockValueToSeconds(clockValue: string): number {
 }
 
 function secondsToClockValue(sec: number): string {
-  const hours = Math.floor(sec / 3600).toString().padStart(2, "0")
-  const minutes = Math.floor((sec % 3600) / 60).toString().padStart(2, "0")
-  const seconds = Math.floor(sec % 60).toString().padStart(2, "0")
+  const hours = Math.floor(sec / 3600)
+    .toString()
+    .padStart(2, "0")
+  const minutes = Math.floor((sec % 3600) / 60)
+    .toString()
+    .padStart(2, "0")
+  const seconds = Math.floor(sec % 60)
+    .toString()
+    .padStart(2, "0")
   const fraction = (sec % 1).toFixed(3).slice(1).toString()
   return `${hours}:${minutes}:${seconds}${fraction}`
 }
@@ -741,7 +781,7 @@ function drawSelection(
   nextInterval: [number, number] | null,
   text: string,
   sampleRate: number,
-): void {
+): [number, number] {
   const { width } = ctx.canvas
   console.assert(begin < end)
 
@@ -783,6 +823,7 @@ function drawSelection(
 
   drawWave(ctx, samples, max, beginSample, length, scale)
   drawText(ctx, text, endX - beginX)
+  return [beginX, endX]
 }
 
 function drawWave(
@@ -858,7 +899,7 @@ function createMergeButtons(
 }
 
 export async function callEndpoint(
-  payload: ModifyPayload | MergePayload | SplitPayload | HistoryPayload
+  payload: ModifyPayload | MergePayload | SplitPayload | HistoryPayload,
 ): Promise<Response> {
   const csrftoken = getCookie("csrftoken")
   if (!csrftoken) throw Error("Could not read CSRF token from document")

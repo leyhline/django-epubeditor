@@ -4,17 +4,10 @@
     "module": "es2022",
     "strict": true,
     "moduleResolution": "bundler",
-    "allowArbitraryExtensions": true,
-    "lib": [
-      "es2022",
-      "dom",
-      "dom.iterable",
-    ],
+    "lib": ["es2022", "dom", "dom.iterable"],
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "forceConsistentCasingInFileNames": true
   },
-  "include": [
-    "static-src/**/*"
-  ]
+  "include": ["static-src/**/*"]
 }

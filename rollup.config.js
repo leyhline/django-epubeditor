@@ -66,7 +66,7 @@ export default {
       cacheId: "epubeditor",
       swDest: "static/epubeditor/sw.js",
       globDirectory: "static/epubeditor",
-      globPatterns: ["**\/*.{js,css,png,jpg,jpeg,gif,webp,svg,ico}"],
+      globPatterns: ["**/*.{js,css,png,jpg,jpeg,gif,webp,svg,ico}"],
       modifyURLPrefix: {
         "": "/static/epubeditor/",
       },

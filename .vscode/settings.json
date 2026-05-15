@@ -2,5 +2,7 @@
   "python.testing.unittestArgs": ["-v"],
   "python.testing.pytestEnabled": false,
   "python.testing.unittestEnabled": true,
-  "html.customData": [".node_modules/@shoelace-style/shoelace/dist/vscode.html-custom-data.json"]
+  "html.customData": ["node_modules/@shoelace-style/shoelace/dist/vscode.html-custom-data.json"],
+  "python.analysis.importFormat": "relative",
+  "lit-plugin.rules.no-missing-import": "off"
 }

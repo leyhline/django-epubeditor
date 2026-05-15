@@ -275,3 +275,15 @@ epub-edit {
     width: 5ch;
   }
 }
+
+.toc {
+  list-style-type: none;
+
+  li {
+    margin-block-end: 1em;
+
+    a {
+      text-decoration: none;
+    }
+  }
+}

@@ -8,7 +8,7 @@
 
 {% block main %}
   <h1>{{ book.title }}</h1>
-  <ol>
+  <ol class="toc">
     {% for item in listing %}
       <li>
         <a href="{{ item.id }}/">{{ item.text }}</a>
