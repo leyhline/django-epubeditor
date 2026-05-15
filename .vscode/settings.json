@@ -1,0 +1,6 @@
+{
+  "python.testing.unittestArgs": ["-v"],
+  "python.testing.pytestEnabled": false,
+  "python.testing.unittestEnabled": true,
+  "html.customData": [".node_modules/@shoelace-style/shoelace/dist/vscode.html-custom-data.json"]
+}

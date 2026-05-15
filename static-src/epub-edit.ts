@@ -4,7 +4,14 @@ import { customElement, property } from "lit/decorators.js"
 import { Task } from "@lit/task"
 import { adoptStyles, html, LitElement } from "lit"
 import type { ParData } from "./epub-overlay-edit"
-import { clockValueToSeconds, EpubOverlayEdit, playBuffer, callEndpoint, notify, showErrorDialog } from "./epub-overlay-edit"
+import {
+  clockValueToSeconds,
+  EpubOverlayEdit,
+  playBuffer,
+  callEndpoint,
+  notify,
+  showErrorDialog,
+} from "./epub-overlay-edit"
 import type { SlIconButton, SlTooltip } from "@shoelace-style/shoelace"
 
 type ParseResult = XhtmlParseResult & Partial<SmilParseResult>
@@ -27,7 +34,7 @@ interface SmilParseResult {
   parsData: ParData[]
 }
 
-const RE_FONT_FACE_URL = /url\("?([^")]+)"?\).*/
+const RE_FONT_FACE_URL = /url\(([^)]+)\)/g
 const DEFAULT_ACTIVE_CLASS = "-epub-media-overlay-active"
 
 @customElement("epub-edit")
@@ -169,7 +176,7 @@ export class EpubEdit extends LitElement {
       void this.undo()
         .then(async (response) => {
           if (response.ok) {
-            const { message } = (await response.json())
+            const { message } = (await response.json()) as { message: string }
             notify(`Undo: ${message}`, "primary", "info-circle", 5000)
             restructuredEventHandler()
           } else if (response.headers.get("content-type")?.startsWith("text/html")) {
@@ -192,7 +199,7 @@ export class EpubEdit extends LitElement {
       void this.redo()
         .then(async (response) => {
           if (response.ok) {
-            const { message } = (await response.json())
+            const { message } = (await response.json()) as { message: string }
             notify(`Redo: ${message}`, "primary", "info-circle", 5000)
             restructuredEventHandler()
           } else if (response.headers.get("content-type")?.startsWith("text/html")) {
@@ -217,13 +224,17 @@ export class EpubEdit extends LitElement {
   }
 
   private async undo(): Promise<Response> {
-    return callEndpoint({op: "UNDO"})
+    return callEndpoint({ op: "UNDO" })
   }
   private async redo(): Promise<Response> {
-    return callEndpoint({op: "REDO"})
+    return callEndpoint({ op: "REDO" })
   }
 
-  private toggleEditModeEvent(epubOverlayEdit: EpubOverlayEdit, undoButton: SlIconButton, redoButton: SlIconButton): void {
+  private toggleEditModeEvent(
+    epubOverlayEdit: EpubOverlayEdit,
+    undoButton: SlIconButton,
+    redoButton: SlIconButton,
+  ): void {
     if (this.editModeActive) {
       this.editModeActive = false
       epubOverlayEdit.style.display = "none"
@@ -375,27 +386,27 @@ function parseCss(css: string, cssUrl: URL): CssParseResult {
   for (const rule of styleSheet.cssRules) {
     if (rule.constructor.name === "CSSFontFaceRule") {
       const fontFaceRule = rule as CSSFontFaceRule
-      // @ts-expect-error Since this is a font face rule, src really exists, trust me!
-      const fontFaceSrc = fontFaceRule.style.src as string
+      const fontFaceSrc = fontFaceRule.style.getPropertyValue("src")
+      if (!fontFaceSrc) continue
       // use regex to parse the url: url(path) -> path
-      const fontFaceSrcPath = RE_FONT_FACE_URL.exec(fontFaceSrc)
-      if (!fontFaceSrcPath) continue
-      const fontFaceUrl = new URL(fontFaceSrcPath[1], cssUrl)
-      // @ts-expect-error It is also allowed to set src on font face rules.
-      fontFaceRule.style.src = fontFaceSrc.replace(fontFaceSrcPath[1], fontFaceUrl.pathname)
+      const newFontFaceSrc = fontFaceSrc.replaceAll(RE_FONT_FACE_URL, (_, rawUrl: string) => {
+        const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, "")
+        const resolvedUrl = new URL(cleanUrl, cssUrl)
+        return `url("${resolvedUrl.pathname}")`
+      })
+      fontFaceRule.style.setProperty("src", newFontFaceSrc)
       fontFaceRules.push(fontFaceRule)
     } else if (rule.constructor.name === "CSSStyleRule") {
       const styleRule = rule as CSSStyleRule
       if (["html", "body", ":root"].includes(styleRule.selectorText)) {
         styleRule.selectorText = ":host"
-        const writingModeRules: Set<string> = new Set()
+        const writingModeRules = new Set<string>()
         for (const styleProp of styleRule.style) {
           if (["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].includes(styleProp)) {
             writingModeRules.add(styleRule.style.getPropertyValue(styleProp))
           }
         }
-        if (writingModeRules.has("vertical-rl") || writingModeRules.has("vertical-lr"))
-          isVerticalWritingMode = true
+        if (writingModeRules.has("vertical-rl") || writingModeRules.has("vertical-lr")) isVerticalWritingMode = true
       }
     }
   }

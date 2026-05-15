@@ -5,7 +5,7 @@ from copy import deepcopy
 from io import StringIO
 from os import PathLike
 from typing import Final
-from xml.etree.ElementTree import Element, register_namespace, ElementTree, TreeBuilder
+from xml.etree.ElementTree import Element, ElementTree, TreeBuilder, register_namespace
 
 from defusedxml.ElementTree import DefusedXMLParser
 
@@ -90,7 +90,7 @@ def is_inline_tag(element: Element) -> bool:
     return tag in INLINE_TEXT_SEMANTICS_TAGS
 
 
-def strip_html(element: Element, next_sibling: Element = None) -> None:
+def strip_html(element: Element, next_sibling: Element | None = None) -> None:
     """See: https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model/Whitespace"""
     children = list(element)
     if is_inline_tag(element):  # handle inline formatting context
@@ -108,7 +108,7 @@ def strip_html(element: Element, next_sibling: Element = None) -> None:
             if len(children) > 0 and is_inline_tag(children[0]):
                 element.text = RE_WHITESPACE.sub(" ", element.text)
                 element.text = element.text.lstrip()
-                if len(element.text) > 0 and RE_WHITESPACE.match(element.text[-1]):
+                if len(element.text) > 0 and RE_WHITESPACE.match(element.text[-1]) and children[0].text is not None:
                     children[0].text = children[0].text.lstrip()
                 if children[-1].tail is not None:
                     children[-1].tail = children[-1].tail.rstrip()

@@ -77,7 +77,7 @@ export default {
           method: "GET",
           urlPattern: ({url, sameOrigin}) => {
             const parts = url.pathname.split('/');
-            const isCachableUrl = (
+            const isCacheableUrl = (
               parts.includes('books') ||
               parts.includes('covers') ||
               parts.includes('history') ||
@@ -85,7 +85,7 @@ export default {
               parts.includes('about')
             )
             const pathname = url.pathname.toLowerCase()
-            return sameOrigin && isCachableUrl && !(
+            return sameOrigin && isCacheableUrl && !(
               pathname.endsWith('.smil') ||
               pathname.endsWith('.xhtml') ||
               pathname.endsWith('/')
@@ -106,7 +106,7 @@ export default {
           method: "GET",
           urlPattern: ({url, sameOrigin}) => {
             const parts = url.pathname.split('/');
-            const isCachableUrl = (
+            const isCacheableUrl = (
               parts.includes('books') ||
               parts.includes('covers') ||
               parts.includes('history') ||
@@ -114,7 +114,7 @@ export default {
               parts.includes('about')
             )
             const pathname = url.pathname.toLowerCase()
-            return sameOrigin && isCachableUrl && (
+            return sameOrigin && isCacheableUrl && (
               pathname.endsWith('.smil') ||
               pathname.endsWith('.xhtml') ||
               pathname.endsWith('/')

@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Final, NamedTuple, TypedDict
 from xml.etree.ElementTree import Element, SubElement
 
-from epubeditor import TITLE, VERSION
-from epubeditor.xhtml import OpfTree, SmilTree, XhtmlTree, deepcopy_parent_element
+from . import TITLE, VERSION
+from .xhtml import OpfTree, SmilTree, XhtmlTree, deepcopy_parent_element
 
 Timing = tuple[float, float]
 
@@ -55,7 +55,7 @@ CORE_MEDIA_TYPES = frozenset(
         "application/smil+xml",
     ]
 )
-COMPRESSABLE_CORE_MEDIA_TYPES = frozenset(
+COMPRESSIBLE_CORE_MEDIA_TYPES = frozenset(
     [
         "image/svg+xml",
         "text/css",

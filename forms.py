@@ -1,11 +1,11 @@
 import random
 from collections.abc import Callable
 
-from django.contrib.auth.forms import BaseUserCreationForm  # type: ignore
+from django.contrib.auth.forms import BaseUserCreationForm # type: ignore
 from django.contrib.auth.models import User
 from django.forms import EmailField, FileField, Form, ModelForm
 
-from epubeditor.models import Book
+from .models import Book
 
 SVG_CALC: dict[str, Callable[[int], str]] = {
     "0": lambda x: f'<path transform="translate({x + 0} -.8419)" d="m20.705 7.0079c-1.577-1.3502-3.4716-3.1157-5.7474-2.3985-3.2493 1.0239-5.3734 3.9838-6.7457 6.9779-2.7042 5.8999-3.4048 12.47-3.8617 18.87-0.20089 2.8143 0.73654 5.5472 2.5096 7.8409 1.3889 1.7967 3.9267 2.893 6.0728 1.7898 3.6414-1.8718 6.2502-5.4347 7.5773-9.24 1.9507-5.5936 2.0595-11.599 2.1887-17.451 0.04691-2.1249 0.762-6.0727-1.3572-6.1424-0.77112-0.025359-2.1391-1.7973-1.4318-1.3681" fill="none" stroke="#000"/>',
@@ -52,7 +52,7 @@ class DeleteBookForm(ModelForm):
         fields = ["uploader", "title"]
 
 
-class UserCreationForm(BaseUserCreationForm):
+class UserCreationForm(BaseUserCreationForm): # type: ignore
     class Meta:
         model = User
         fields = ("username", "email")

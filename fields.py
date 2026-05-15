@@ -3,7 +3,7 @@ from xml.etree.ElementTree import Element
 import defusedxml.ElementTree as ET
 from django.db import models
 
-from epubeditor.xhtml import XhtmlTree, SmilTree
+from .xhtml import SmilTree, XhtmlTree
 
 
 class XmlField(models.TextField):

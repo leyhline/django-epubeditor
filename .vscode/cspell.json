@@ -1,0 +1,32 @@
+{
+    "version": "0.2",
+    "ignorePaths": [],
+    "dictionaryDefinitions": [],
+    "dictionaries": [],
+    "words": [
+        "activeclass",
+        "csrftoken",
+        "defusedxml",
+        "diffname",
+        "Elems",
+        "epub",
+        "epubcheck",
+        "epubeditor",
+        "gongitsune",
+        "hrefs",
+        "OEBPS",
+        "opendocument",
+        "pycache",
+        "redoable",
+        "rootfile",
+        "samp",
+        "sfnt",
+        "smil",
+        "smilsrc",
+        "tobuffer",
+        "undoable",
+        "viewsutils"
+    ],
+    "ignoreWords": [],
+    "import": []
+}

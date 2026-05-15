@@ -30,5 +30,5 @@ def icon_name(attributes: dict[str, str]) -> str:
     Return a font awesome icon name for the EPUB 3 core media types.
     The attributes dictionary must contain the media-type key.
     """
-    media_type = attributes.get("media-type")
+    media_type = attributes.get("media-type", "")
     return CORE_MEDIA_TYPES_TO_ICON_NAME.get(media_type, "file-earmark")

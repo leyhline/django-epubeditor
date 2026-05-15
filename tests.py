@@ -22,10 +22,10 @@ from django.http import HttpResponse
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from epubeditor.epub import SmilTree
-from epubeditor.models import Book, BookContentPayload, Epubcheck, History
-from epubeditor.replay import apply_payload, get_item_id_from_diffname
-from epubeditor.xhtml import XhtmlTree
+from .epub import SmilTree
+from .models import Book, BookContentPayload, Epubcheck, History
+from .replay import apply_payload, get_item_id_from_diffname
+from .xhtml import XhtmlTree
 
 settings.MEDIA_ROOT = "./test-media/"
 settings.SERIALIZE_PAYLOADS = False

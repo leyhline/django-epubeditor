@@ -1,4 +1,7 @@
 node_modules/
+static/epubeditor/assets/icons
+static/epubeditor/*.css
+static/epubeditor/*.js
 # later, add this to git again
 migrations/
 

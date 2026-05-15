@@ -19,7 +19,7 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
   min-width: var(--min-body-width);
   width: 100%;
 }
@@ -84,7 +84,7 @@ header {
   background-color: var(--sl-color-neutral-0);
   min-width: var(--min-body-width);
   width: 100%;
-  height: calc(100vh - env(titlebar-area-height, var(--sl-font-size-3x-large)));
+  height: calc(100dvh - env(titlebar-area-height, var(--sl-font-size-3x-large)));
 
   sl-drawer {
     --size: var(--nav-width);
@@ -97,7 +97,7 @@ nav {
   flex-direction: column;
   justify-content: space-between;
   background-color: var(--sl-color-neutral-100);
-  height: calc(100vh - env(titlebar-area-height, var(--sl-font-size-3x-large)));
+  height: calc(100dvh - env(titlebar-area-height, var(--sl-font-size-3x-large)));
 
   sl-button::part(base) {
     justify-content: flex-start;
@@ -150,13 +150,13 @@ nav {
 }
 
 main {
-  height: calc(100vh - env(titlebar-area-height, var(--sl-font-size-3x-large)));
+  height: calc(100dvh - env(titlebar-area-height, var(--sl-font-size-3x-large)));
   overflow-y: auto;
   transition: margin-left var(--sl-transition-medium);
 }
 
 epub-edit {
-  height: calc(100vh - 100px - env(titlebar-area-height, var(--sl-font-size-3x-large)))
+  height: calc(100dvh - 100px - env(titlebar-area-height, var(--sl-font-size-3x-large)))
 }
 
 @media only screen and (min-width: 600px) {

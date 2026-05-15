@@ -7,9 +7,9 @@ from typing import cast
 from django.contrib.auth.models import User
 from django.http import JsonResponse
 
-from epubeditor.models import Book, BookContentPayload, HistoryTrigger, HistoryType
-from epubeditor.record import RE_DEBUG_FILE_NAME
-from epubeditor.viewsutils import handle_book_content_op
+from .models import Book, BookContentPayload, HistoryTrigger, HistoryType
+from .record import RE_DEBUG_FILE_NAME
+from .viewsutils import handle_book_content_op
 
 
 def get_item_id_from_diffname(filename: str) -> str:

@@ -16,8 +16,8 @@ from django.dispatch import receiver
 from django.utils import timezone as tz
 from PIL import Image
 
-from epubeditor.epub import (
-    COMPRESSABLE_CORE_MEDIA_TYPES,
+from .epub import (
+    COMPRESSIBLE_CORE_MEDIA_TYPES,
     CORE_MEDIA_TYPES,
     ParData,
     ResourceListingItem,
@@ -40,8 +40,8 @@ from epubeditor.epub import (
     split_xhtml,
     update_last_modified,
 )
-from epubeditor.fields import SmilField, XhtmlField
-from epubeditor.xhtml import (
+from .fields import SmilField, XhtmlField
+from .xhtml import (
     SMIL_NAMESPACES,
     XHTML_NAMESPACES,
     ContainerTree,
@@ -188,7 +188,7 @@ class Book(models.Model):
                     smil_tree = SmilTree(file=path)
                     adjust_smil_timings(smil_tree)
                     zipfile.writestr(path.relative_to(data_path).as_posix(), smil_tree.tostring())
-                elif media_type in COMPRESSABLE_CORE_MEDIA_TYPES:
+                elif media_type in COMPRESSIBLE_CORE_MEDIA_TYPES:
                     zipfile.write(path, path.relative_to(data_path))
                 else:
                     zipfile.write(path, path.relative_to(data_path), ZIP_STORED)
@@ -389,13 +389,21 @@ class Book(models.Model):
             if do_serialize_payloads:
                 new_smil_content, new_smil_modified = read_file_for_debug(smil_path)
                 smil_debug_info = DebugInfo(
-                    smil_path, old_smil_content, new_smil_content, old_smil_modified, new_smil_modified  # type: ignore
+                    smil_path,
+                    old_smil_content,
+                    new_smil_content,
+                    old_smil_modified,
+                    new_smil_modified,  # type: ignore
                 )
             xhtml_tree.write(xhtml_path)
             if do_serialize_payloads:
                 new_xhtml_content, new_xhtml_modified = read_file_for_debug(xhtml_path)
                 xhtml_debug_info = DebugInfo(
-                    xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified  # type: ignore
+                    xhtml_path,
+                    old_xhtml_content,
+                    new_xhtml_content,
+                    old_xhtml_modified,
+                    new_xhtml_modified,  # type: ignore
                 )
             root_tree = OpfTree(file=root_path)
             update_last_modified(root_tree)
@@ -442,13 +450,21 @@ class Book(models.Model):
             if do_serialize_payloads:
                 new_smil_content, new_smil_modified = read_file_for_debug(smil_path)
                 smil_debug_info = DebugInfo(
-                    smil_path, old_smil_content, new_smil_content, old_smil_modified, new_smil_modified  # type: ignore
+                    smil_path,
+                    old_smil_content,
+                    new_smil_content,
+                    old_smil_modified,
+                    new_smil_modified,  # type: ignore
                 )
             xhtml_tree.write(xhtml_path)
             if do_serialize_payloads:
                 new_xhtml_content, new_xhtml_modified = read_file_for_debug(xhtml_path)
                 xhtml_debug_info = DebugInfo(
-                    xhtml_path, old_xhtml_content, new_xhtml_content, old_xhtml_modified, new_xhtml_modified  # type: ignore
+                    xhtml_path,
+                    old_xhtml_content,
+                    new_xhtml_content,
+                    old_xhtml_modified,
+                    new_xhtml_modified,  # type: ignore
                 )
             root_tree = OpfTree(file=root_path)
             update_last_modified(root_tree)
@@ -513,9 +529,9 @@ class History(models.Model):
         indexes = [models.Index(fields=["book", "item_id"])]
 
     def undo(self) -> tuple[PayloadOpType, HistoryType, ParData | MergePayload | SplitPayload]:
-        assert (
-            self.trigger == "N" or self.trigger == "R"
-        ), f"Last operation is not undoable: {self.get_trigger_display()}"
+        assert self.trigger == "N" or self.trigger == "R", (
+            f"Last operation is not undoable: {self.get_trigger_display()}"
+        )
         match cast(HistoryType, self.type):
             case "C":
                 data = cast(ParData, self.old)

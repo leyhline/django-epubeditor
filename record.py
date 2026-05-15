@@ -11,8 +11,8 @@ from itertools import groupby
 from pathlib import Path
 from typing import Iterator
 
-from epubeditor.epub import ParData
-from epubeditor.models import (
+from .epub import ParData
+from .models import (
     Book,
     DebugInfo,
     HistoryTrigger,

@@ -8,8 +8,8 @@ from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
 
-from epubeditor.apps import EpubeditorConfig
-from epubeditor.models import (
+from .apps import EpubeditorConfig
+from .models import (
     Book,
     DebugInfo,
     History,
@@ -22,7 +22,7 @@ from epubeditor.models import (
     RoleKey,
     SplitPayload,
 )
-from epubeditor.record import write_files_files_to_disk
+from .record import write_files_files_to_disk
 
 OP_TO_TYPE: Final[dict[PayloadOpType, HistoryType]] = {
     "CREATE": "C",

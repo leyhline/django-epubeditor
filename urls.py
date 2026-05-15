@@ -1,8 +1,8 @@
-from django.urls import path, include, re_path
-from django.views.decorators.common import no_append_slash
 from django.conf import settings
+from django.urls import include, path, re_path
+from django.views.decorators.common import no_append_slash
 
-from epubeditor import views
+from . import views
 
 urlpatterns = [
     path("", views.HomeView.as_view(), name="home"),

@@ -3,7 +3,7 @@ import subprocess
 
 from django.core.management.base import BaseCommand
 
-from epubeditor.apps import EpubeditorConfig
+from ...apps import EpubeditorConfig
 
 RE_JAVA_VERSION = re.compile(
     r".*runtime\s.+\(build (?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>.+)\)\n", flags=re.IGNORECASE | re.DOTALL

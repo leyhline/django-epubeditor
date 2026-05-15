@@ -39,14 +39,14 @@ from django.views.generic.detail import BaseDetailView
 from django.views.generic.edit import CreateView, DeleteView, FormView
 from django.views.generic.list import ListView
 
-from epubeditor.forms import (
+from .forms import (
     DeleteBookForm,
     UploadBookForm,
     UserCreationForm,
     build_challenge,
     equation_to_svg,
 )
-from epubeditor.models import (
+from .models import (
     Book,
     BookContentPayload,
     CompressToEpubOption,
@@ -54,7 +54,7 @@ from epubeditor.models import (
     History,
     Role,
 )
-from epubeditor.viewsutils import (
+from .viewsutils import (
     OP_TO_TYPE,
     call_epubcheck,
     handle_book_content_op,
@@ -214,7 +214,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
             try:
                 response_body = json.loads(e.file.read())
                 if "message" in response_body:
-                    error_msg += f"- {response_body["message"]}"
+                    error_msg += f"- {response_body['message']}"
             except json.JSONDecodeError:
                 pass
             form.add_error("epub", error_msg)
@@ -232,7 +232,7 @@ class UploadBookView(LoginRequiredMixin, FormView):
             return self.form_invalid(form)
 
         errors = [
-            f'{message.get("severity", "ERROR")}: {message.get("message", "Unknown error")}'
+            f"{message.get('severity', 'ERROR')}: {message.get('message', 'Unknown error')}"
             for message in check_result.get("messages", [])
             if message.get("severity") in ["ERROR", "FATAL"]
         ]
