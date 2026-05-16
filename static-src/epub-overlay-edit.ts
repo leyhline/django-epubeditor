@@ -102,7 +102,7 @@ export class EpubOverlayEdit extends LitElement {
   @query("#end-input") private endInput!: SlInput
   @query("#commit-button") private commitButton!: SlIconButton
   @query("#revert-button") private revertButton!: SlIconButton
-  @query("#delete-button") private deleteButton!: SlIconButton
+  //@query("#delete-button") private deleteButton!: SlIconButton
   @query("#create-button") private createButton!: SlIconButton
   @query("#create-select") private createSelect!: SlSelect
   @query("#waveform-target") private waveformCanvas?: HTMLCanvasElement
@@ -162,13 +162,13 @@ export class EpubOverlayEdit extends LitElement {
   private disableButtons(): void {
     this.commitButton.disabled = true
     this.revertButton.disabled = true
-    this.deleteButton.disabled = true
+    //this.deleteButton.disabled = true
   }
 
   private enableButtons(): void {
     this.commitButton.disabled = false
     this.revertButton.disabled = false
-    this.deleteButton.disabled = false
+    //this.deleteButton.disabled = false
   }
 
   private merge(isNext: boolean): void {
@@ -220,7 +220,7 @@ export class EpubOverlayEdit extends LitElement {
           this.dispatchEvent(new CustomEvent("restructured", { detail: { textId } }))
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Update failed for ID: ${srcId}`)
-          this.deleteButton.disabled = false
+          //this.deleteButton.disabled = false
         } else {
           const data = (await response.json()) as ErrorResponse
           notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000)
@@ -255,7 +255,7 @@ export class EpubOverlayEdit extends LitElement {
           parData.clipEnd = data.new!.clipEnd
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Update failed for ID: ${srcId}`)
-          this.deleteButton.disabled = false
+          //this.deleteButton.disabled = false
         } else {
           const data = (await response.json()) as ErrorResponse
           notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000)
@@ -283,7 +283,7 @@ export class EpubOverlayEdit extends LitElement {
     const parData = this.idParMap?.get(srcId)
     if (!parData) return
     const payload: ModifyPayload = { ...parData, op: "DELETE" }
-    this.deleteButton.disabled = true
+    //this.deleteButton.disabled = true
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
@@ -291,16 +291,16 @@ export class EpubOverlayEdit extends LitElement {
           this.dispatchEvent(new CustomEvent("restructured", { detail: { textId: null } }))
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Delete failed for ID: ${srcId}`)
-          this.deleteButton.disabled = false
+          //this.deleteButton.disabled = false
         } else {
           const data = (await response.json()) as ErrorResponse
           notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000)
-          this.deleteButton.disabled = false
+          //this.deleteButton.disabled = false
         }
       })
       .catch((error: unknown) => {
         notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000)
-        this.deleteButton.disabled = false
+        //this.deleteButton.disabled = false
       })
   }
 
@@ -329,7 +329,7 @@ export class EpubOverlayEdit extends LitElement {
           this.dispatchEvent(new CustomEvent("restructured", { detail: { textId } }))
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Create failed for ID: ${srcId}`)
-          this.deleteButton.disabled = false
+          //this.deleteButton.disabled = false
         } else {
           const data = (await response.json()) as ErrorResponse
           notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000)
@@ -626,13 +626,6 @@ export class EpubOverlayEdit extends LitElement {
             name="arrow-left-circle"
             label="revert change"
             @click="${this.revert}"
-          ></sl-icon-button>
-          <sl-icon-button
-            id="delete-button"
-            name="trash"
-            label="delete overlay"
-            @click="${this.delete}"
-            style="display: none"
           ></sl-icon-button>
         </div>`
     }
