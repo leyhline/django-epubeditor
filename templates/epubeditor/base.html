@@ -22,14 +22,15 @@
 <header>
   <div class="header-left">
     <sl-icon-button id="nav-toggle" name="list" label="toggle side menu"></sl-icon-button>
-    <sl-tooltip id="header-spinner" placement="bottom-start" class="invisible">
-      <sl-spinner></sl-spinner>
-    </sl-tooltip>
+    {% block header_left %}{% endblock %}
   </div>
   <div class="header-center">
     {% block header_center %}{% endblock %}
   </div>
   <div class="header-right">
+    <sl-tooltip id="header-spinner" placement="bottom-start" class="invisible">
+      <sl-spinner></sl-spinner>
+    </sl-tooltip>
     {% block header_right %}{% endblock %}
   </div>
 </header>

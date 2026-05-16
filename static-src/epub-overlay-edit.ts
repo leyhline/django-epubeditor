@@ -632,6 +632,7 @@ export class EpubOverlayEdit extends LitElement {
             name="trash"
             label="delete overlay"
             @click="${this.delete}"
+            style="display: none"
           ></sl-icon-button>
         </div>`
     }

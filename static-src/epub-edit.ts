@@ -661,7 +661,8 @@ function addEditModeListeners(
   overlayElems: Element[],
 ): void {
   addModifyOverlayListeners(overlayElems, epubOverlayEdit, editModeAbortController.signal)
-  addCreateOverlayListeners(body, parsData, xhtmlUrl, epubOverlayEdit, editModeAbortController.signal)
+  // TODO: there is a bug with create and delete: write tests, fix bug, enable again, unhide delete button
+  // addCreateOverlayListeners(body, parsData, xhtmlUrl, epubOverlayEdit, editModeAbortController.signal)
 }
 
 function removeEditModeListeners(body: Element[]): void {
