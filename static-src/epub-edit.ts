@@ -385,16 +385,27 @@ function parseCss(css: string, cssUrl: URL): CssParseResult {
   styleSheet.replaceSync(css)
   for (const rule of styleSheet.cssRules) {
     if (rule.constructor.name === "CSSFontFaceRule") {
-      const fontFaceRule = rule as CSSFontFaceRule
-      const fontFaceSrc = fontFaceRule.style.getPropertyValue("src")
-      if (!fontFaceSrc) continue
-      // use regex to parse the url: url(path) -> path
-      const newFontFaceSrc = fontFaceSrc.replaceAll(RE_FONT_FACE_URL, (_, rawUrl: string) => {
-        const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, "")
-        const resolvedUrl = new URL(cleanUrl, cssUrl)
-        return `url("${resolvedUrl.pathname}")`
-      })
-      fontFaceRule.style.setProperty("src", newFontFaceSrc)
+      let fontFaceRule = rule as CSSFontFaceRule
+      try {
+        const fontFaceSrc = fontFaceRule.style.getPropertyValue("src")
+        if (!fontFaceSrc) continue
+        const newFontFaceSrc = fontFaceSrc.replaceAll(RE_FONT_FACE_URL, (_, rawUrl: string) => {
+          const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, "")
+          const resolvedUrl = new URL(cleanUrl, cssUrl)
+          return `url("${resolvedUrl.pathname}")`
+        })
+        fontFaceRule.style.setProperty("src", newFontFaceSrc)
+      } catch (error) {
+        console.warn("Firefox does not support CSSStyleDeclaration.setProperty, hence using a workaround. Browser exception:", error)
+          const newFontFaceRuleText = fontFaceRule.cssText.replaceAll(RE_FONT_FACE_URL, (_, rawUrl: string) => {
+          const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, "")
+          const resolvedUrl = new URL(cleanUrl, cssUrl)
+          return `url("${resolvedUrl.pathname}")`
+        })
+        const tempStyleSheet = new CSSStyleSheet()
+        const newRuleIndex = tempStyleSheet.insertRule(newFontFaceRuleText)
+        fontFaceRule = tempStyleSheet.cssRules[newRuleIndex] as CSSFontFaceRule
+      }
       fontFaceRules.push(fontFaceRule)
     } else if (rule.constructor.name === "CSSStyleRule") {
       const styleRule = rule as CSSStyleRule

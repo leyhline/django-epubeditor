@@ -55,3 +55,12 @@ Note 2: There is also an additional variable for writing out detailed diffs when
 # put into settings.py
 SERIALIZE_PAYLOADS = True
 ```
+
+## Prepare Django
+
+1. `django-admin startproject epub .` in an empty folder
+2. `git clone https://github.com/leyhline/django-epubeditor.git epubeditor`
+3. Add url to `epub/urls.py`: `path('', include('epubeditor.urls')),`
+4. Add app to `epub/settings.py` by prepending to `INSTALLED_APPS`: `"epubeditor.apps.EpubeditorConfig"`
+5. [Use Argon2 for password hashing](https://docs.djangoproject.com/en/6.0/topics/auth/passwords/#using-argon2-with-django)
+6. Set `MEDIA_ROOT` to something development friendly in `epub/settings.py` like `MEDIA_ROOT = "media/"` and create the folder `mkdir media`

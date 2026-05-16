@@ -17,7 +17,7 @@ export default {
   output: {
     file: "static/epubeditor/main.js",
     format: "es",
-    sourcemap: false,
+    sourcemap: true,
   },
   plugins: [
     typescript(),

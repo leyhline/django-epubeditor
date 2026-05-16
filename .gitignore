@@ -2,8 +2,8 @@ node_modules/
 static/epubeditor/assets/icons
 static/epubeditor/*.css
 static/epubeditor/*.js
-# later, add this to git again
-migrations/
+static/epubeditor/*.js.map
+epubeditor.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

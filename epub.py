@@ -266,9 +266,10 @@ def read_toc(rootfile_tree: OpfTree, toc_tree: XhtmlTree, toc_src: str) -> list[
         href = anchor.get("href")
         if toc_src:
             href = f"{toc_src}/{href}"
-        if href in href_id_dict and anchor.text:
+        text =  extract_text_from_elem_list([anchor], False)
+        if href in href_id_dict and text:
             item_id, media_overlay_id = href_id_dict[href]
-            listing.append(TocListingItem(item_id, anchor.text, media_overlay_id, id_href_dict.get(media_overlay_id)))
+            listing.append(TocListingItem(item_id, text, media_overlay_id, id_href_dict.get(media_overlay_id)))
     return listing
 
 
@@ -395,21 +396,25 @@ def get_text_href_from_smil(tree: SmilTree, par_id: str) -> tuple[str, str]:
     return href, fragment
 
 
-def extract_text_from_elem_list(elem_list: list[Element | str]) -> str:
+def extract_text_from_elem_list(elem_list: list[Element | str], do_strip = True) -> str:
     skip_tags = {"{http://www.w3.org/1999/xhtml}rp", "{http://www.w3.org/1999/xhtml}rt"}
     text_parts: list[str] = []
 
+    def preprocess(text: str) -> str:
+        if do_strip:
+            return text.strip()
+        else:
+            return text
+
     def extract_text(elem: Element) -> None:
         if elem.text is not None:
-            text_parts.append(elem.text.strip())
+            text_parts.append(preprocess(elem.text))
         for elem_child in elem:
             if elem_child.tag in skip_tags:
                 continue
-            if elem_child.text:
-                text_parts.append(elem_child.text.strip())
             extract_text(elem_child)
             if elem_child.tail:
-                text_parts.append(elem_child.tail.strip())
+                text_parts.append(preprocess(elem_child.tail))
 
     for x in elem_list:
         if isinstance(x, Element):

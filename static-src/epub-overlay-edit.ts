@@ -190,8 +190,7 @@ export class EpubOverlayEdit extends LitElement {
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
-          const { message, textId } = (await response.json()) as ModifyResponse
-          notify(`Merged: ${message}`, "primary", "info-circle", 5000)
+          const { textId } = (await response.json()) as ModifyResponse
           this.dispatchEvent(new CustomEvent("restructured", { detail: { textId } }))
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Update failed for ID: ${srcId}`)
@@ -217,8 +216,7 @@ export class EpubOverlayEdit extends LitElement {
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
-          const { message, textId } = (await response.json()) as ModifyResponse
-          notify(`Split: ${message}`, "primary", "info-circle", 5000)
+          const { textId } = (await response.json()) as ModifyResponse
           this.dispatchEvent(new CustomEvent("restructured", { detail: { textId } }))
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Update failed for ID: ${srcId}`)
@@ -251,7 +249,6 @@ export class EpubOverlayEdit extends LitElement {
       .then(async (response) => {
         if (response.ok) {
           const data = (await response.json()) as ModifyResponse
-          notify(`Updated: ${data.message}`, "primary", "info-circle", 5000)
           this.beginInput.value = clockValueToSeconds(data.new!.clipBegin).toString()
           this.endInput.value = clockValueToSeconds(data.new!.clipEnd).toString()
           parData.clipBegin = data.new!.clipBegin
@@ -290,8 +287,7 @@ export class EpubOverlayEdit extends LitElement {
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
-          const { message } = (await response.json()) as ModifyResponse
-          notify(`Deleted: ${message}`, "primary", "info-circle", 5000)
+          await response.json() as ModifyResponse
           this.dispatchEvent(new CustomEvent("restructured", { detail: { textId: null } }))
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Delete failed for ID: ${srcId}`)
@@ -329,8 +325,7 @@ export class EpubOverlayEdit extends LitElement {
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
-          const { message, textId } = (await response.json()) as ModifyResponse
-          notify(`Created: ${message}`, "primary", "info-circle", 5000)
+          const { textId } = (await response.json()) as ModifyResponse
           this.dispatchEvent(new CustomEvent("restructured", { detail: { textId } }))
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Create failed for ID: ${srcId}`)

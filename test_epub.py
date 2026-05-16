@@ -31,3 +31,7 @@ class TestCase_build_new_id(TestCase):
     def test_mixed_ids(self):
         new_id = build_new_id("p4-1", "p5")
         self.assertEqual("p4-2", new_id)
+
+
+class TestCase_extract_text_from_elem_list(TestCase):
+    ...
