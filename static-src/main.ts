@@ -1,6 +1,7 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 
 import "./epub-edit"
+import "./epub-overlay-edit"
 import "./main.css"
 import "@shoelace-style/shoelace/dist/themes/light.css"
 import "@shoelace-style/shoelace/dist/themes/dark.css"
@@ -27,7 +28,9 @@ import "@shoelace-style/shoelace/dist/components/radio-group/radio-group.js"
 import "@shoelace-style/shoelace/dist/components/range/range.js"
 import { setBasePath } from "@shoelace-style/shoelace/dist/utilities/base-path.js"
 
-import type { SlButton, SlDrawer, SlIconButton } from "@shoelace-style/shoelace"
+import type { SlButton, SlDrawer, SlIconButton, SlIcon, SlSpinner } from "@shoelace-style/shoelace"
+import type { EpubEdit } from "./epub-edit"
+import type { EpubOverlayEdit } from "./epub-overlay-edit"
 
 type ColorModeButtonName = "circle-half" | "moon" | "sun"
 
@@ -152,11 +155,60 @@ function initFormSubmitButtons() {
   })
 }
 
+function getIconButtons(): SlIconButton[] {
+  const epubEditElement = document.getElementById("epub-edit") as EpubEdit | null
+  const epubOverlayEditElement = document.getElementById("epub-overlay-edit") as EpubOverlayEdit | null
+  const iconButtons: SlIconButton[] = []
+  const documentButtonIds = ["undo-button", "redo-button"]
+  documentButtonIds.forEach((elementId) => {
+    const element = document.getElementById(elementId) as SlIconButton | null
+    if (element) iconButtons.push(element)
+  })
+  const epubEditButtonIds = ["prev-merge-button", "next-merge-button", "split-button"]
+  epubEditButtonIds.forEach((elementId) => {
+    if (!epubEditElement || !epubEditElement.shadowRoot) return
+    const element = epubEditElement.shadowRoot.getElementById(elementId) as SlIconButton | null
+    if (element) iconButtons.push(element)
+  })
+  const epubOverlayEditButtonIds = ["commit-button", "delete-button", "create-button"]
+  epubOverlayEditButtonIds.forEach((elementId) => {
+    if (!epubOverlayEditElement || !epubOverlayEditElement.shadowRoot) return
+    const element = epubOverlayEditElement.shadowRoot.getElementById(elementId) as SlIconButton | null
+    if (element) iconButtons.push(element)
+  })
+  return iconButtons
+}
+
+function initDisconnectedIndicator() {
+  window.addEventListener("online", () => {
+    const spinnerIcon = document.getElementById("header-spinner-icon") as SlSpinner | null
+    if (spinnerIcon) spinnerIcon.style.display = "inline-flex"
+    const disconnectedIcon = document.getElementById("header-disconnected-icon") as SlIcon | null
+    if (disconnectedIcon) disconnectedIcon.style.display = "none"
+    const buttons = getIconButtons()
+    buttons.forEach((button) => {
+      button.disabled = false
+    })
+  })
+  window.addEventListener("offline", () => {
+    const spinnerIcon = document.getElementById("header-spinner-icon") as SlSpinner | null
+    if (spinnerIcon) spinnerIcon.style.display = "none"
+    const disconnectedIcon = document.getElementById("header-disconnected-icon") as SlIcon | null
+    if (disconnectedIcon) disconnectedIcon.style.display = "inline-block"
+    const buttons = getIconButtons()
+    buttons.forEach((button) => {
+      console.log(button)
+      button.disabled = true
+    })
+  })
+}
+
 ;(function () {
   void registerServiceWorker()
   initNavDrawer()
   initColorModeToggle()
   initFormSubmitButtons()
+  initDisconnectedIndicator()
 })()
 
 // @license-end

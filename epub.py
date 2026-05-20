@@ -266,7 +266,7 @@ def read_toc(rootfile_tree: OpfTree, toc_tree: XhtmlTree, toc_src: str) -> list[
         href = anchor.get("href")
         if toc_src:
             href = f"{toc_src}/{href}"
-        text =  extract_text_from_elem_list([anchor], False)
+        text = extract_text_from_elem_list([anchor], False)
         if href in href_id_dict and text:
             item_id, media_overlay_id = href_id_dict[href]
             listing.append(TocListingItem(item_id, text, media_overlay_id, id_href_dict.get(media_overlay_id)))
@@ -357,7 +357,7 @@ def merge_smil(tree: SmilTree, par_id: str, other_par_id: str) -> tuple[str, str
 def merge_xhtml(tree: XhtmlTree, text_id: str, other_text_id: str) -> tuple[Element, Element]:
     namespaces = tree.register_namespaces()
     parent = tree.find(".//span[@id='%s']/.." % text_id, namespaces=namespaces)
-    assert parent is not None
+    assert parent is not None, "Merging currently only works on span elements"
     for first, second in pairwise(parent):
         first_id = first.get("id")
         second_id = second.get("id")
@@ -396,7 +396,7 @@ def get_text_href_from_smil(tree: SmilTree, par_id: str) -> tuple[str, str]:
     return href, fragment
 
 
-def extract_text_from_elem_list(elem_list: list[Element | str], do_strip = True) -> str:
+def extract_text_from_elem_list(elem_list: list[Element | str], do_strip=True) -> str:
     skip_tags = {"{http://www.w3.org/1999/xhtml}rp", "{http://www.w3.org/1999/xhtml}rt"}
     text_parts: list[str] = []
 
@@ -476,7 +476,7 @@ def split_element(
 def split_xhtml(tree: XhtmlTree, text_id: str, split_index: int) -> tuple[str, str, str, Element, Element]:
     namespaces = tree.register_namespaces()
     parent = tree.find(".//span[@id='%s']/.." % text_id, namespaces=namespaces)
-    assert parent is not None
+    assert parent is not None, "Splitting currently only works on span elements"
     child_elem: Element | None = None
     child_index = 0
     for i, child in enumerate(parent):

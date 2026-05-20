@@ -2,7 +2,15 @@
 
 import { customElement, property, query } from "lit/decorators.js"
 import { css, html, LitElement, nothing, PropertyValues } from "lit"
-import type { SlAlert, SlChangeEvent, SlDialog, SlInput, SlInputEvent, SlSelect } from "@shoelace-style/shoelace"
+import type {
+  SlAlert,
+  SlChangeEvent,
+  SlDialog,
+  SlInput,
+  SlInputEvent,
+  SlSelect,
+  SlTooltip,
+} from "@shoelace-style/shoelace"
 import SlIconButton from "@shoelace-style/shoelace/dist/components/icon-button/icon-button.js"
 
 export interface ParData {
@@ -71,7 +79,7 @@ export class EpubOverlayEdit extends LitElement {
       flex-wrap: nowrap;
       flex-direction: row;
       justify-content: center;
-      align-items: center;
+      align-items: flex-end;
       font-size: var(--sl-font-size-large);
     }
 
@@ -174,19 +182,20 @@ export class EpubOverlayEdit extends LitElement {
   private merge(isNext: boolean): void {
     const srcId = this.elems?.selected.getAttribute("id") ?? ""
     let otherId: string
-    let button: SlIconButton | null
+    let mergeButton: SlIconButton | null
     if (isNext) {
       otherId = this.elems?.next?.getAttribute("id") ?? ""
-      button = this.nextMergeButton
+      mergeButton = this.nextMergeButton
     } else {
       otherId = this.elems?.prev?.getAttribute("id") ?? ""
-      button = this.prevMergeButton
+      mergeButton = this.prevMergeButton
     }
-    if (!this.idParMap || !this.idParMap.has(srcId) || !this.idParMap.has(otherId) || !button) return
+    if (!this.idParMap || !this.idParMap.has(srcId) || !this.idParMap.has(otherId) || !mergeButton) return
     const parData = this.idParMap.get(srcId)!
     const otherParData = this.idParMap.get(otherId)!
     const payload: MergePayload = { op: "MERGE", parId: parData.parId, otherParId: otherParData.parId }
-    button.disabled = true
+    mergeButton.disabled = true
+    enableSpinner("Merging")
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
@@ -203,7 +212,8 @@ export class EpubOverlayEdit extends LitElement {
         notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000)
       })
       .finally(() => {
-        button.disabled = false
+        mergeButton.disabled = false
+        disableSpinner()
       })
   }
 
@@ -213,6 +223,7 @@ export class EpubOverlayEdit extends LitElement {
     if (!this.splitButton || !parData) return
     const payload: SplitPayload = { op: "SPLIT", parId: parData.parId, index: splitAfterIndex }
     this.splitButton.disabled = true
+    enableSpinner("Splitting")
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
@@ -231,6 +242,7 @@ export class EpubOverlayEdit extends LitElement {
       })
       .finally(() => {
         this.splitButton!.disabled = false
+        disableSpinner()
       })
   }
 
@@ -245,6 +257,7 @@ export class EpubOverlayEdit extends LitElement {
       op: "UPDATE",
     }
     this.disableButtons()
+    enableSpinner("Updating timings")
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
@@ -266,6 +279,9 @@ export class EpubOverlayEdit extends LitElement {
         notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000)
         this.enableButtons()
       })
+      .finally(() => {
+        disableSpinner()
+      })
   }
 
   private revert(): void {
@@ -284,10 +300,11 @@ export class EpubOverlayEdit extends LitElement {
     if (!parData) return
     const payload: ModifyPayload = { ...parData, op: "DELETE" }
     //this.deleteButton.disabled = true
+    enableSpinner("Deleting")
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
-          await response.json() as ModifyResponse
+          await response.json()
           this.dispatchEvent(new CustomEvent("restructured", { detail: { textId: null } }))
         } else if (response.headers.get("content-type")?.startsWith("text/html")) {
           showErrorDialog(await response.text(), `Delete failed for ID: ${srcId}`)
@@ -301,6 +318,9 @@ export class EpubOverlayEdit extends LitElement {
       .catch((error: unknown) => {
         notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000)
         //this.deleteButton.disabled = false
+      })
+      .finally(() => {
+        disableSpinner()
       })
   }
 
@@ -322,6 +342,7 @@ export class EpubOverlayEdit extends LitElement {
       op: "CREATE",
     }
     this.createButton.disabled = true
+    enableSpinner("Creating")
     void callEndpoint(payload)
       .then(async (response) => {
         if (response.ok) {
@@ -339,6 +360,9 @@ export class EpubOverlayEdit extends LitElement {
       .catch((error: unknown) => {
         notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000)
         this.createButton.disabled = false
+      })
+      .finally(() => {
+        disableSpinner()
       })
   }
 
@@ -914,6 +938,22 @@ function removeRuby(elem: Element): string {
     }
   }
   return textParts.join("")
+}
+
+export function enableSpinner(tooltip: string): void {
+  const spinner = document.getElementById("header-spinner") as SlTooltip | null
+  if (spinner) {
+    spinner.classList.remove("invisible")
+    spinner.content = tooltip
+  }
+}
+
+export function disableSpinner(): void {
+  const spinner = document.getElementById("header-spinner") as SlTooltip | null
+  if (spinner) {
+    spinner.classList.add("invisible")
+    spinner.content = ""
+  }
 }
 
 // @license-end

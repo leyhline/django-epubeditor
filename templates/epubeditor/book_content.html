@@ -46,8 +46,10 @@
 
 {% block main %}
   <epub-edit
+          id="epub-edit"
           src="{% url "resource_data" username basename xhtml %}"
           {% if smil %} smilsrc="{% url "resource_data" username basename smil %}" {% endif %}
           {% if active_class_name %}activeclass="{{ active_class_name }}"{% endif %}>
   </epub-edit>
+  <epub-overlay-edit id="epub-overlay-edit"></epub-overlay-edit>
 {% endblock main %}

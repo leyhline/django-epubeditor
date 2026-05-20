@@ -60,6 +60,7 @@ export default {
         shoelaceIcon("arrow-counterclockwise"),
         shoelaceIcon("exclamation-octagon"),
         shoelaceIcon("info-circle"),
+        shoelaceIcon("wifi-off"),
       ],
     }),
     generateSW({

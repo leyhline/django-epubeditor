@@ -3,8 +3,8 @@ from xml.etree.ElementTree import Element, tostring
 from django import template
 from django.urls import reverse
 
-from epubeditor.models import Book
-from epubeditor.xhtml import XhtmlTree, is_ruby_tag
+from ..models import Book
+from ..xhtml import XhtmlTree, is_ruby_tag
 
 register = template.Library()
 

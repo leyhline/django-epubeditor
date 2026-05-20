@@ -11,8 +11,10 @@ import {
   callEndpoint,
   notify,
   showErrorDialog,
+  enableSpinner,
+  disableSpinner,
 } from "./epub-overlay-edit"
-import type { SlIconButton, SlTooltip } from "@shoelace-style/shoelace"
+import type { SlIconButton } from "@shoelace-style/shoelace"
 
 type ParseResult = XhtmlParseResult & Partial<SmilParseResult>
 
@@ -101,22 +103,6 @@ export class EpubEdit extends LitElement {
     }
   }
 
-  private enableSpinner(tooltip: string): void {
-    const spinner = document.getElementById("header-spinner") as SlTooltip | null
-    if (spinner) {
-      spinner.classList.remove("invisible")
-      spinner.content = tooltip
-    }
-  }
-
-  private disableSpinner(): void {
-    const spinner = document.getElementById("header-spinner") as SlTooltip | null
-    if (spinner) {
-      spinner.classList.add("invisible")
-      spinner.content = ""
-    }
-  }
-
   private enableEditModeButton(epubOverlayEdit: EpubOverlayEdit): void {
     const editModeButton = document.getElementById("edit-mode-toggle") as SlIconButton | null
     const undoButton = document.getElementById("undo-button") as SlIconButton | null
@@ -129,7 +115,7 @@ export class EpubEdit extends LitElement {
     }
 
     const restructuredEventHandler = (event?: CustomEvent) => {
-      this.enableSpinner("Reloading book's media overlay")
+      enableSpinner("Reloading book's media overlay")
       void handleXml([this.src, this.smilsrc], { signal: this.editModeAbortController!.signal })
         .then((parseResult) => {
           if (this.editModeAbortController) this.editModeAbortController.abort()
@@ -167,17 +153,18 @@ export class EpubEdit extends LitElement {
           }
         })
         .finally(() => {
-          this.disableSpinner()
+          disableSpinner()
         })
     }
 
     undoButton.onclick = () => {
       undoButton.disabled = true
+      redoButton.disabled = true
+      enableSpinner("Undoing last modification")
       void this.undo()
         .then(async (response) => {
           if (response.ok) {
-            const { message } = (await response.json()) as { message: string }
-            notify(`Undo: ${message}`, "primary", "info-circle", 5000)
+            await response.json()
             restructuredEventHandler()
           } else if (response.headers.get("content-type")?.startsWith("text/html")) {
             showErrorDialog(await response.text(), "Undo failed")
@@ -191,11 +178,15 @@ export class EpubEdit extends LitElement {
         })
         .finally(() => {
           undoButton.disabled = false
+          redoButton.disabled = false
+          disableSpinner()
         })
     }
 
     redoButton.onclick = () => {
+      undoButton.disabled = true
       redoButton.disabled = true
+      enableSpinner("Redoing last undo operation")
       void this.redo()
         .then(async (response) => {
           if (response.ok) {
@@ -213,7 +204,9 @@ export class EpubEdit extends LitElement {
           notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000)
         })
         .finally(() => {
+          undoButton.disabled = false
           redoButton.disabled = false
+          disableSpinner()
         })
     }
 
@@ -266,7 +259,7 @@ export class EpubEdit extends LitElement {
 
   private loadMediaOverlayIfExists(epubOverlayEdit: EpubOverlayEdit): void {
     const { body, audioSrcSet, parsData } = this.parseResult!
-    this.enableSpinner("Loading book's media overlay")
+    enableSpinner("Loading book's media overlay")
     if (audioSrcSet && parsData) {
       // load the overlay if it exists, then disable the spinner
       void this.applyOverlay(body, audioSrcSet, parsData)
@@ -274,11 +267,11 @@ export class EpubEdit extends LitElement {
           this.enableEditModeButton(epubOverlayEdit)
         })
         .finally(() => {
-          this.disableSpinner()
+          disableSpinner()
         })
     } else {
       // if the overlay does not exist, disable the spinner immediately
-      this.disableSpinner()
+      disableSpinner()
     }
   }
 
@@ -293,19 +286,19 @@ export class EpubEdit extends LitElement {
   protected render() {
     return this.handleXmlTask.render({
       pending: () => {
-        this.enableSpinner("Loading book content")
+        enableSpinner("Loading book content")
         return html` <div>Loading...</div>`
       },
       error: (error) => {
-        this.disableSpinner()
+        disableSpinner()
         return html` <div>${error} (${this.src})</div>`
       },
       complete: (parseResult) => {
         this.parseResult = parseResult
-        const epubOverlayEdit = new EpubOverlayEdit()
+        const epubOverlayEdit = document.getElementById("epub-overlay-edit") as EpubOverlayEdit
         this.handleInitialParseResult(epubOverlayEdit)
         this.loadMediaOverlayIfExists(epubOverlayEdit)
-        return [parseResult.body, epubOverlayEdit]
+        return [parseResult.body]
       },
     })
   }
@@ -396,8 +389,11 @@ function parseCss(css: string, cssUrl: URL): CssParseResult {
         })
         fontFaceRule.style.setProperty("src", newFontFaceSrc)
       } catch (error) {
-        console.warn("Firefox does not support CSSStyleDeclaration.setProperty, hence using a workaround. Browser exception:", error)
-          const newFontFaceRuleText = fontFaceRule.cssText.replaceAll(RE_FONT_FACE_URL, (_, rawUrl: string) => {
+        console.warn(
+          "Firefox does not support CSSStyleDeclaration.setProperty, hence using a workaround. Browser exception:",
+          error,
+        )
+        const newFontFaceRuleText = fontFaceRule.cssText.replaceAll(RE_FONT_FACE_URL, (_, rawUrl: string) => {
           const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, "")
           const resolvedUrl = new URL(cleanUrl, cssUrl)
           return `url("${resolvedUrl.pathname}")`

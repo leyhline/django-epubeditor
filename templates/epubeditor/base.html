@@ -29,7 +29,10 @@
   </div>
   <div class="header-right">
     <sl-tooltip id="header-spinner" placement="bottom-start" class="invisible">
-      <sl-spinner></sl-spinner>
+      <sl-spinner id="header-spinner-icon"></sl-spinner>
+    </sl-tooltip>
+    <sl-tooltip content="No internet connection">
+      <sl-icon id="header-disconnected-icon" name="wifi-off" label="no internet access"></sl-icon>
     </sl-tooltip>
     {% block header_right %}{% endblock %}
   </div>
