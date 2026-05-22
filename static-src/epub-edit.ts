@@ -121,7 +121,7 @@ export class EpubEdit extends LitElement {
           if (this.editModeAbortController) this.editModeAbortController.abort()
           removeEditModeListeners(parseResult.body)
           this.parseResult = parseResult
-          this.shadowRoot!.replaceChildren(...parseResult.body, epubOverlayEdit)
+          this.shadowRoot!.replaceChildren(...parseResult.body)
           const xhtmlUrl = new URL(this.src!, window.location.origin)
           const smilUrl = new URL(this.smilsrc!, window.location.origin)
           this.overlayElems = createOverlayTuples(parseResult.body, parseResult.parsData!, xhtmlUrl, smilUrl).map(
@@ -388,11 +388,8 @@ function parseCss(css: string, cssUrl: URL): CssParseResult {
           return `url("${resolvedUrl.pathname}")`
         })
         fontFaceRule.style.setProperty("src", newFontFaceSrc)
-      } catch (error) {
-        console.warn(
-          "Firefox does not support CSSStyleDeclaration.setProperty, hence using a workaround. Browser exception:",
-          error,
-        )
+      } catch {
+        // console.warn("Firefox does not support CSSStyleDeclaration.setProperty, hence using a workaround. Browser exception:", error)
         const newFontFaceRuleText = fontFaceRule.cssText.replaceAll(RE_FONT_FACE_URL, (_, rawUrl: string) => {
           const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, "")
           const resolvedUrl = new URL(cleanUrl, cssUrl)
