@@ -314,12 +314,12 @@ async function handleXml(
 ): Promise<ParseResult> {
   if (!xhtmlPath) throw new Error("src attribute missing")
   const xhtmlUrl = new URL(xhtmlPath, window.location.origin)
-  const xhtmlPromise: Promise<string> = fetch(xhtmlUrl, { signal }).then((response) => {
+  const xhtmlPromise: Promise<string> = fetch(xhtmlUrl, { signal, cache: "no-cache" }).then((response) => {
     if (!response.ok) throw new Error(response.statusText)
     return response.text()
   })
   const smilPromise: Promise<string | undefined> = smilPath
-    ? fetch(smilPath, { signal }).then((response) => {
+    ? fetch(smilPath, { signal, cache: "no-cache" }).then((response) => {
         if (!response.ok) throw new Error(response.statusText)
         return response.text()
       })

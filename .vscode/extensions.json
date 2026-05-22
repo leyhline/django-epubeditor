@@ -4,8 +4,7 @@
     "charliermarsh.ruff",
     "streetsidesoftware.code-spell-checker",
     "dbaeumer.vscode-eslint",
-    "esbenp.prettier-vscode",
-    "runem.lit-plugin"
+    "esbenp.prettier-vscode"
   ],
   "unwantedRecommendations": ["ms-python.isort", "ms-python.black-formatter"]
 }
