@@ -134,7 +134,7 @@ class BookContentView(TemplateResponseMixin, AbstractBookDetailView):
             context["editable"] = True
         except PermissionDenied:
             context["editable"] = False
-        context["xhtml"], context["smil"], context["active_class_name"] = book.get_xml_hrefs(item_id)
+        context["body_content"], context["style_content"], context["font_face_rules"] = book.get_xhtml_content(item_id)
         return context
 
     def post(self, request: HttpRequest, *args, **kwargs) -> JsonResponse:

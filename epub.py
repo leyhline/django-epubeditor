@@ -30,6 +30,8 @@ class ParData(TypedDict):
 TITLE_VERSION: Final = f"{TITLE} version"
 RE_PAR_ID_PART = re.compile(r"""(?P<alpha>[A-Za-z]*)(?P<num>[0-9]+)""")
 RE_CLOCK = re.compile(r"""^(?:(?P<hours>\d+):)??(?:(?P<minutes>\d+):)??(?P<seconds>\d+)(?P<fraction>\.\d+)?$""")
+RE_ROOT_SELECTORS = re.compile(r"""(?<![\w-])(html|body|:root)(?![\w-])""")
+RE_HOST_SELECTORS = re.compile(r"""host\s+:host""")
 
 
 """https://www.w3.org/TR/epub-33/#sec-core-media-types"""
@@ -695,3 +697,12 @@ def update_last_modified(tree: OpfTree) -> None:
     if last_modified_elem is None:
         last_modified_elem = add_subelement(metadata, "meta", {"property": "dcterms:modified"})
     last_modified_elem.text = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def replace_root_selectors(selector: str) -> tuple[str, bool]:
+    re.subn
+    new_selector, nr_subs = RE_ROOT_SELECTORS.subn(":host", selector)
+    if nr_subs == 0:
+        return selector, False
+    selector = RE_HOST_SELECTORS.sub(":host", new_selector)
+    return new_selector, True

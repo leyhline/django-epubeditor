@@ -1,5 +1,6 @@
-from xml.etree.ElementTree import Element, tostring
+from xml.etree.ElementTree import Element
 
+import defusedxml.ElementTree as ET
 from django import template
 from django.urls import reverse
 
@@ -59,4 +60,4 @@ def xhtml_with_base_to_string(context, element: Element, item_id: str) -> str:
             if original_url is not None:
                 stylesheet_link.set("href", f"{url}/{original_url}")
     XhtmlTree.register_namespaces()
-    return tostring(element, encoding="unicode")
+    return ET.tostring(element, encoding="unicode")

@@ -1,0 +1,1149 @@
+/** @import { PropertyValues } from 'lit' */
+/** @import { SlAlert, SlChangeEvent, SlDialog, SlInput, SlInputEvent, SlSelect, SlTooltip } from '@shoelace-style/shoelace' */
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+// @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
+import { customElement, property, query } from "lit/decorators.js";
+import { css, html, LitElement, nothing } from "lit";
+import SlIconButton from "@shoelace-style/shoelace/dist/components/icon-button/icon-button.js";
+const RE_CLOCK = /^(?:(?<hours>\d+):)??(?:(?<minutes>\d+):)??(?<seconds>\d+)(?<fraction>\.\d+)?$/;
+/** @extends LitElement */
+let EpubOverlayEdit = class EpubOverlayEdit extends LitElement {
+    constructor() {
+        super(...arguments);
+        /** @default false */
+        this.isVerticalWritingMode = false;
+        /**
+           * @private
+           * @default Map<string, [Float32Array, number]>
+           */
+        this.samplesSrcMap = new Map();
+        /**
+           * @private
+           * @default null
+           */
+        this.prevMergeButton = null;
+        /**
+           * @private
+           * @default null
+           */
+        this.nextMergeButton = null;
+        /**
+           * @private
+           * @default null
+           */
+        this.splitButton = null;
+    }
+    /**
+       * @static
+       * @default CSSResult
+       */
+    static { this.styles = css `
+    :host {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      background-color: var(--sl-color-neutral-100);
+      writing-mode: horizontal-tb;
+    }
+
+    .epub-overlay-edit-container {
+      display: flex;
+      flex-wrap: nowrap;
+      flex-direction: row;
+      justify-content: center;
+      align-items: flex-end;
+      font-size: var(--sl-font-size-large);
+    }
+
+    sl-input {
+      width: 11ch;
+    }
+
+    canvas {
+      height: 50px;
+      width: 100%;
+    }
+  `; }
+    /**
+       * @private
+       * @param {SlInputEvent} event
+       * @returns {void}
+       */
+    validateInput(event) {
+        const inputElem = event.target;
+        this.validateInputOfElement(inputElem);
+    }
+    /**
+       * @private
+       * @param {SlInput} inputElem
+       * @returns {void}
+       */
+    validateInputOfElement(inputElem) {
+        this.revertButton.disabled = false;
+        const isNumber = inputElem.value && !isNaN(Number(inputElem.value));
+        if (isNumber) {
+            inputElem.setCustomValidity("");
+        }
+        else {
+            inputElem.setCustomValidity("Must be a number");
+        }
+        this.commitButton.disabled = !inputElem.reportValidity();
+        this.renderWaveform();
+    }
+    /**
+       * @private
+       * @param {SlChangeEvent} event
+       * @returns {void}
+       */
+    restoreBeginOnOverlap(event) {
+        const prevParId = this.elems?.prev?.getAttribute("id") ?? "";
+        const prevPar = this.idParMap?.get(prevParId);
+        if (!prevPar)
+            return;
+        const inputElem = event.target;
+        const seconds = Number(inputElem.value);
+        const prevEndSeconds = clockValueToSeconds(prevPar.clipEnd);
+        if (seconds < prevEndSeconds) {
+            inputElem.value = prevEndSeconds.toString();
+        }
+    }
+    /**
+       * @private
+       * @param {SlChangeEvent} event
+       * @returns {void}
+       */
+    restoreEndOnOverlap(event) {
+        const nextParId = this.elems?.next?.getAttribute("id") ?? "";
+        const nextPar = this.idParMap?.get(nextParId);
+        if (!nextPar)
+            return;
+        const inputElem = event.target;
+        const seconds = Number(inputElem.value);
+        const nextBeginSeconds = clockValueToSeconds(nextPar.clipBegin);
+        if (seconds > nextBeginSeconds) {
+            inputElem.value = nextBeginSeconds.toString();
+        }
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    playBuffer() {
+        const srcId = this.elems?.selected.getAttribute("id") ?? "";
+        const parData = this.idParMap?.get(srcId);
+        if (!parData)
+            return;
+        const buffer = this.audioSrcMap?.get(parData.audioSrc);
+        const begin = Number(this.beginInput.value);
+        const end = Number(this.endInput.value);
+        if (!this.audioContext || !buffer)
+            return;
+        playBuffer(this.audioContext, buffer, begin, end);
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    disableButtons() {
+        this.commitButton.disabled = true;
+        this.revertButton.disabled = true;
+        //this.deleteButton.disabled = true
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    enableButtons() {
+        this.commitButton.disabled = false;
+        this.revertButton.disabled = false;
+        //this.deleteButton.disabled = false
+    }
+    /**
+       * @private
+       * @param {boolean} isNext
+       * @returns {void}
+       */
+    merge(isNext) {
+        const srcId = this.elems?.selected.getAttribute("id") ?? "";
+        let otherId;
+        let mergeButton;
+        if (isNext) {
+            otherId = this.elems?.next?.getAttribute("id") ?? "";
+            mergeButton = this.nextMergeButton;
+        }
+        else {
+            otherId = this.elems?.prev?.getAttribute("id") ?? "";
+            mergeButton = this.prevMergeButton;
+        }
+        if (!this.idParMap || !this.idParMap.has(srcId) || !this.idParMap.has(otherId) || !mergeButton)
+            return;
+        const parData = this.idParMap.get(srcId);
+        const otherParData = this.idParMap.get(otherId);
+        const payload = { op: "MERGE", parId: parData.parId, otherParId: otherParData.parId };
+        mergeButton.disabled = true;
+        enableSpinner("Merging");
+        void callEndpoint(payload)
+            .then(async (response) => {
+            if (response.ok) {
+                const { textId } = (await response.json());
+                this.dispatchEvent(new CustomEvent("restructured", { detail: { textId } }));
+            }
+            else if (response.headers.get("content-type")?.startsWith("text/html")) {
+                showErrorDialog(await response.text(), `Update failed for ID: ${srcId}`);
+            }
+            else {
+                const data = (await response.json());
+                notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000);
+            }
+        })
+            .catch((error) => {
+            notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000);
+        })
+            .finally(() => {
+            mergeButton.disabled = false;
+            disableSpinner();
+        });
+    }
+    /**
+       * @private
+       * @param {number} splitAfterIndex
+       * @returns {void}
+       */
+    split(splitAfterIndex) {
+        const srcId = this.elems?.selected.getAttribute("id") ?? "";
+        const parData = this.idParMap?.get(srcId);
+        if (!this.splitButton || !parData)
+            return;
+        const payload = { op: "SPLIT", parId: parData.parId, index: splitAfterIndex };
+        this.splitButton.disabled = true;
+        enableSpinner("Splitting");
+        void callEndpoint(payload)
+            .then(async (response) => {
+            if (response.ok) {
+                const { textId } = (await response.json());
+                this.dispatchEvent(new CustomEvent("restructured", { detail: { textId } }));
+            }
+            else if (response.headers.get("content-type")?.startsWith("text/html")) {
+                showErrorDialog(await response.text(), `Update failed for ID: ${srcId}`);
+                //this.deleteButton.disabled = false
+            }
+            else {
+                const data = (await response.json());
+                notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000);
+            }
+        })
+            .catch((error) => {
+            notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000);
+        })
+            .finally(() => {
+            this.splitButton.disabled = false;
+            disableSpinner();
+        });
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    commit() {
+        const srcId = this.elems?.selected.getAttribute("id") ?? "";
+        const parData = this.idParMap?.get(srcId);
+        if (!parData)
+            return;
+        const payload = {
+            ...parData,
+            clipBegin: secondsToClockValue(Number(this.beginInput.value)),
+            clipEnd: secondsToClockValue(Number(this.endInput.value)),
+            op: "UPDATE",
+        };
+        this.disableButtons();
+        enableSpinner("Updating timings");
+        void callEndpoint(payload)
+            .then(async (response) => {
+            if (response.ok) {
+                const data = (await response.json());
+                this.beginInput.value = clockValueToSeconds(data.new.clipBegin).toString();
+                this.endInput.value = clockValueToSeconds(data.new.clipEnd).toString();
+                parData.clipBegin = data.new.clipBegin;
+                parData.clipEnd = data.new.clipEnd;
+            }
+            else if (response.headers.get("content-type")?.startsWith("text/html")) {
+                showErrorDialog(await response.text(), `Update failed for ID: ${srcId}`);
+                //this.deleteButton.disabled = false
+            }
+            else {
+                const data = (await response.json());
+                notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000);
+                this.enableButtons();
+            }
+        })
+            .catch((error) => {
+            notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000);
+            this.enableButtons();
+        })
+            .finally(() => {
+            disableSpinner();
+        });
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    revert() {
+        const srcId = this.elems?.selected.getAttribute("id") ?? "";
+        const parData = this.idParMap?.get(srcId);
+        this.beginInput.value = clockValueToSeconds(parData?.clipBegin ?? "").toString();
+        this.endInput.value = clockValueToSeconds(parData?.clipEnd ?? "").toString();
+        this.revertButton.disabled = true;
+        this.commitButton.disabled = true;
+        this.renderWaveform();
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    delete() {
+        const srcId = this.elems?.selected.getAttribute("id") ?? "";
+        const parData = this.idParMap?.get(srcId);
+        if (!parData)
+            return;
+        const payload = { ...parData, op: "DELETE" };
+        //this.deleteButton.disabled = true
+        enableSpinner("Deleting");
+        void callEndpoint(payload)
+            .then(async (response) => {
+            if (response.ok) {
+                await response.json();
+                this.dispatchEvent(new CustomEvent("restructured", { detail: { textId: null } }));
+            }
+            else if (response.headers.get("content-type")?.startsWith("text/html")) {
+                showErrorDialog(await response.text(), `Delete failed for ID: ${srcId}`);
+                //this.deleteButton.disabled = false
+            }
+            else {
+                const data = (await response.json());
+                notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000);
+                //this.deleteButton.disabled = false
+            }
+        })
+            .catch((error) => {
+            notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000);
+            //this.deleteButton.disabled = false
+        })
+            .finally(() => {
+            disableSpinner();
+        });
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    create() {
+        const audioSrc = this.createSelect.value;
+        const audioBuffer = this.audioSrcMap?.get(audioSrc);
+        if (!this.elems?.textSrcNew || !audioBuffer)
+            return;
+        const prevParId = this.elems.prev?.getAttribute("id") ?? "";
+        const clipBegin = this.idParMap?.get(prevParId)?.clipEnd;
+        const nextParId = this.elems.next?.getAttribute("id") ?? "";
+        const clipEnd = this.idParMap?.get(nextParId)?.clipBegin;
+        const srcId = this.elems.textSrcNew;
+        const payload = {
+            parId: "",
+            textSrc: srcId,
+            audioSrc: audioSrc,
+            clipBegin: clipBegin ?? "0:00:00.000",
+            clipEnd: clipEnd ?? secondsToClockValue(audioBuffer.duration),
+            op: "CREATE",
+        };
+        this.createButton.disabled = true;
+        enableSpinner("Creating");
+        void callEndpoint(payload)
+            .then(async (response) => {
+            if (response.ok) {
+                const { textId } = (await response.json());
+                this.dispatchEvent(new CustomEvent("restructured", { detail: { textId } }));
+            }
+            else if (response.headers.get("content-type")?.startsWith("text/html")) {
+                showErrorDialog(await response.text(), `Create failed for ID: ${srcId}`);
+                //this.deleteButton.disabled = false
+            }
+            else {
+                const data = (await response.json());
+                notify(`Server error: ${data.message}`, "danger", "exclamation-octagon", 5000);
+                this.createButton.disabled = false;
+            }
+        })
+            .catch((error) => {
+            notify(`Error: ${error}`, "danger", "exclamation-octagon", 5000);
+            this.createButton.disabled = false;
+        })
+            .finally(() => {
+            disableSpinner();
+        });
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    registerAdjustCanvasWidthEvent() {
+        // calculate new canvas width on browser window resize
+        window.addEventListener("resize", () => {
+            if (this.waveformCanvas) {
+                this.waveformCanvas.width = this.waveformCanvas.getBoundingClientRect().width;
+                this.renderWaveform();
+            }
+        }, true);
+    }
+    /**
+       * @private
+       * @param {number} beginX
+       * @param {number} endX
+       * @returns {void}
+       */
+    updateWaveformEvents(beginX, endX) {
+        if (!this.waveformCanvas)
+            return;
+        this.waveformCanvas.onclick = (event) => {
+            if (!this.waveformCanvas)
+                return;
+            const xPos = event.x;
+            const begin = Number(this.beginInput.value);
+            const end = Number(this.endInput.value);
+            let newSeconds = begin + ((xPos - beginX) * (end - begin)) / (endX - beginX);
+            let inputElem;
+            if (xPos < this.waveformCanvas.width / 2) {
+                inputElem = this.beginInput;
+                const prevPar = this.idParMap?.get(this.elems?.prev?.getAttribute("id") ?? "");
+                if (prevPar) {
+                    const prevEndSeconds = clockValueToSeconds(prevPar.clipEnd);
+                    if (newSeconds < prevEndSeconds)
+                        newSeconds = prevEndSeconds;
+                }
+            }
+            else {
+                inputElem = this.endInput;
+                const nextPar = this.idParMap?.get(this.elems?.next?.getAttribute("id") ?? "");
+                if (nextPar) {
+                    const nextBeginSeconds = clockValueToSeconds(nextPar.clipBegin);
+                    if (newSeconds > nextBeginSeconds)
+                        newSeconds = nextBeginSeconds;
+                }
+            }
+            inputElem.value = newSeconds.toFixed(2);
+            this.validateInputOfElement(inputElem);
+        };
+    }
+    /**
+       * @protected
+       * @returns {void}
+       */
+    firstUpdated() {
+        this.registerAdjustCanvasWidthEvent();
+    }
+    /**
+       * @protected
+       * @param {PropertyValues<this>} changedProperties
+       * @returns {void}
+       */
+    willUpdate(changedProperties) {
+        this.removeMergeButtons();
+        const previousElems = changedProperties.get("elems");
+        if (previousElems) {
+            this.removeSplitEvents(previousElems.selected);
+        }
+    }
+    /**
+       * @protected
+       * @returns {void}
+       */
+    updated() {
+        if (this.renderContext) {
+            const { width, height } = this.renderContext.canvas;
+            this.renderContext.clearRect(0, 0, width, height);
+        }
+        if (this.canvasIntersectionObserver) {
+            this.canvasIntersectionObserver.disconnect();
+        }
+        if (this.waveformCanvas) {
+            const renderContext = this.waveformCanvas.getContext("2d");
+            if (!renderContext)
+                return;
+            this.renderContext = renderContext;
+            this.canvasIntersectionObserver = new IntersectionObserver((entries) => {
+                const entry = entries[0];
+                if (entry.intersectionRatio > 0 && this.waveformCanvas) {
+                    this.waveformCanvas.width = entry.boundingClientRect.width;
+                    this.renderWaveform();
+                }
+            }, { root: this });
+            this.canvasIntersectionObserver.observe(this.waveformCanvas);
+            this.renderWaveform();
+        }
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    renderWaveform() {
+        if (!this.renderContext || !this.audioContext || !this.elems)
+            return;
+        const srcId = this.elems.selected.getAttribute("id") ?? "";
+        const parData = this.idParMap?.get(srcId);
+        if (!parData)
+            return;
+        let prevInterval = null;
+        if (this.elems.prev) {
+            const prevParId = this.elems.prev.getAttribute("id") ?? "";
+            const prevPar = this.idParMap?.get(prevParId);
+            if (prevPar) {
+                prevInterval = [clockValueToSeconds(prevPar.clipBegin), clockValueToSeconds(prevPar.clipEnd)];
+            }
+        }
+        let nextInterval = null;
+        if (this.elems.next) {
+            const nextParId = this.elems.next.getAttribute("id") ?? "";
+            const nextPar = this.idParMap?.get(nextParId);
+            if (nextPar) {
+                nextInterval = [clockValueToSeconds(nextPar.clipBegin), clockValueToSeconds(nextPar.clipEnd)];
+            }
+        }
+        const buffer = this.audioSrcMap?.get(parData.audioSrc);
+        if (!buffer)
+            return;
+        let samples;
+        let max;
+        if (this.samplesSrcMap.has(parData.audioSrc)) {
+            ;
+            [samples, max] = this.samplesSrcMap.get(parData.audioSrc);
+        }
+        else {
+            ;
+            [samples, max] = downmixToMono(buffer);
+            this.samplesSrcMap.set(parData.audioSrc, [samples, max]);
+        }
+        const begin = Number(this.beginInput.value);
+        const end = Number(this.endInput.value);
+        const [beginX, endX] = drawSelection(this.renderContext, samples, max, prevInterval, [begin, end], nextInterval, removeRuby(this.elems.selected), this.audioContext.sampleRate);
+        this.updateWaveformEvents(beginX, endX);
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    addMergeButtons() {
+        if (!this.elems)
+            return;
+        [this.prevMergeButton, this.nextMergeButton] = createMergeButtons(this.elems, this.isVerticalWritingMode);
+        if (this.prevMergeButton) {
+            this.prevMergeButton.onclick = () => {
+                this.merge(false);
+            };
+        }
+        if (this.nextMergeButton) {
+            this.nextMergeButton.onclick = () => {
+                this.merge(true);
+            };
+        }
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    removeMergeButtons() {
+        if (this.prevMergeButton)
+            this.prevMergeButton.remove();
+        if (this.nextMergeButton)
+            this.nextMergeButton.remove();
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    addSplitEvents() {
+        this.addSplitButtonsListeners();
+        this.addSplitButtonsEvents();
+    }
+    /**
+       * @private
+       * @param {Element} previousSelectedElement
+       * @returns {void}
+       */
+    removeSplitEvents(previousSelectedElement) {
+        if (this.originalSelectedElement) {
+            previousSelectedElement.replaceChildren(...this.originalSelectedElement.childNodes);
+            this.originalSelectedElement = undefined;
+        }
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    addSplitButtonsListeners() {
+        if (!this.elems)
+            return;
+        this.originalSelectedElement = this.elems.selected.cloneNode(true);
+        const nodes = [];
+        for (const node of this.elems.selected.childNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const text = node;
+                for (const char of text.data) {
+                    const charNode = document.createTextNode(char);
+                    const spanElem = document.createElement("span");
+                    spanElem.appendChild(charNode);
+                    nodes.push(spanElem);
+                }
+            }
+            else {
+                nodes.push(node);
+            }
+        }
+        this.elems.selected.replaceChildren(...nodes);
+    }
+    /**
+       * @private
+       * @returns {void}
+       */
+    addSplitButtonsEvents() {
+        if (!this.elems)
+            return;
+        for (let i = 1; i < this.elems.selected.children.length; i++) {
+            const elem = this.elems.selected.children[i];
+            let splitIconButton = null;
+            elem.onclick = (event) => {
+                event.stopPropagation();
+                splitIconButton = new SlIconButton();
+                splitIconButton.id = "split-button";
+                splitIconButton.name = this.isVerticalWritingMode ? "arrows-expand" : "arrows-expand-vertical";
+                splitIconButton.label = "Split media overlay and corresponding text";
+                splitIconButton.onclick = (event) => {
+                    event.stopPropagation();
+                    this.split(i - 1);
+                };
+                elem.insertAdjacentElement("beforebegin", splitIconButton);
+                if (this.splitButton)
+                    this.splitButton.remove();
+                this.splitButton = splitIconButton;
+            };
+            elem.onmouseenter = () => {
+                elem.style.borderInlineStart = "1px solid";
+            };
+            elem.onmouseleave = () => {
+                elem.style.borderInlineStart = "";
+            };
+        }
+    }
+    /**
+       * @protected
+       * @returns {typeof nothing | TemplateResult<1>}
+       */
+    render() {
+        if (!this.elems) {
+            return nothing;
+        }
+        if (this.elems.textSrcNew && this.elems.audioSrcNew) {
+            return html `<div class="epub-overlay-edit-container">
+        <sl-tooltip placement="top" content="${this.elems.textSrcNew}">
+          <sl-input pill disabled value="${this.elems.textSrcNew}" size="small"></sl-input>
+        </sl-tooltip>
+        <sl-select id="create-select" pill size="small" placement="top" value="${this.elems.audioSrcNew}">
+          ${Array.from(this.audioSrcMap.keys()).map((audioSrc) => html ` <sl-option value="${audioSrc}">${audioSrc}</sl-option>`)}
+        </sl-select>
+        <sl-icon-button
+          id="create-button"
+          name="check-circle"
+          label="create new"
+          @click="${this.create}"
+        ></sl-icon-button>
+      </div>`;
+        }
+        else {
+            this.addSplitEvents();
+            this.addMergeButtons();
+            const isDisabled = !this.elems;
+            const srcId = this.elems.selected.getAttribute("id") ?? "";
+            const parData = this.idParMap?.get(srcId);
+            const begin = clockValueToSeconds(parData?.clipBegin ?? "");
+            const end = clockValueToSeconds(parData?.clipEnd ?? "");
+            return html `<canvas id="waveform-target" height="50"></canvas>
+        <div class="epub-overlay-edit-container">
+          <sl-icon-button
+            ?disabled=${isDisabled}
+            name="play-circle"
+            label="play current time selection"
+            @click="${this.playBuffer}"
+          ></sl-icon-button>
+          <sl-input
+            id="begin-input"
+            ?disabled=${isDisabled}
+            value="${begin}"
+            type="number"
+            step="0.01"
+            @sl-input="${this.validateInput}"
+            @sl-change="${this.restoreBeginOnOverlap}"
+            size="small"
+            placeholder="Begin"
+            pill
+          ></sl-input>
+          <sl-input
+            id="end-input"
+            ?disabled=${isDisabled}
+            value="${end}"
+            type="number"
+            step="0.01"
+            @sl-input="${this.validateInput}"
+            @sl-change="${this.restoreEndOnOverlap}"
+            size="small"
+            placeholder="End"
+            pill
+          ></sl-input>
+          <sl-icon-button
+            id="commit-button"
+            disabled
+            name="check-circle"
+            label="commit change"
+            @click="${this.commit}"
+          ></sl-icon-button>
+          <sl-icon-button
+            id="revert-button"
+            disabled
+            name="arrow-left-circle"
+            label="revert change"
+            @click="${this.revert}"
+          ></sl-icon-button>
+        </div>`;
+        }
+    }
+};
+__decorate([
+    property({ attribute: false })
+], EpubOverlayEdit.prototype, "elems", void 0);
+__decorate([
+    property({ attribute: false })
+], EpubOverlayEdit.prototype, "isVerticalWritingMode", void 0);
+__decorate([
+    property({ attribute: false })
+], EpubOverlayEdit.prototype, "idParMap", void 0);
+__decorate([
+    query("#begin-input")
+], EpubOverlayEdit.prototype, "beginInput", void 0);
+__decorate([
+    query("#end-input")
+], EpubOverlayEdit.prototype, "endInput", void 0);
+__decorate([
+    query("#commit-button")
+], EpubOverlayEdit.prototype, "commitButton", void 0);
+__decorate([
+    query("#revert-button")
+], EpubOverlayEdit.prototype, "revertButton", void 0);
+__decorate([
+    query("#create-button")
+], EpubOverlayEdit.prototype, "createButton", void 0);
+__decorate([
+    query("#create-select")
+], EpubOverlayEdit.prototype, "createSelect", void 0);
+__decorate([
+    query("#waveform-target")
+], EpubOverlayEdit.prototype, "waveformCanvas", void 0);
+EpubOverlayEdit = __decorate([
+    customElement("epub-overlay-edit")
+], EpubOverlayEdit);
+export { EpubOverlayEdit };
+/**
+ * https://www.w3.org/TR/SMIL3/smil-timing.html#q22
+ * @param {string} clockValue
+ * @returns {number}
+ */
+export function clockValueToSeconds(clockValue) {
+    const match = RE_CLOCK.exec(clockValue.trim());
+    if (!match?.groups)
+        throw new Error(`Invalid clock value: ${clockValue}`);
+    const groups = match.groups;
+    let seconds = parseInt(groups.seconds, 10);
+    if (groups.minutes)
+        seconds += parseInt(groups.minutes, 10) * 60;
+    if (groups.hours)
+        seconds += parseInt(groups.hours, 10) * 3600;
+    if (groups.fraction)
+        seconds += parseFloat(groups.fraction);
+    return seconds;
+}
+/**
+ * @param {number} sec
+ * @returns {string}
+ */
+function secondsToClockValue(sec) {
+    const hours = Math.floor(sec / 3600)
+        .toString()
+        .padStart(2, "0");
+    const minutes = Math.floor((sec % 3600) / 60)
+        .toString()
+        .padStart(2, "0");
+    const seconds = Math.floor(sec % 60)
+        .toString()
+        .padStart(2, "0");
+    const fraction = (sec % 1).toFixed(3).slice(1).toString();
+    return `${hours}:${minutes}:${seconds}${fraction}`;
+}
+/**
+ * @param {AudioContext} audioContext
+ * @param {AudioBuffer} buffer
+ * @param {number} begin
+ * @param {number} end
+ * @returns {void}
+ */
+export function playBuffer(audioContext, buffer, begin, end) {
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start(0, begin, end - begin);
+}
+/**
+ * @param {string} name
+ * @returns {string | null}
+ */
+export function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+        const cookies = document.cookie.split(";");
+        for (const item of cookies) {
+            const cookie = item.trim();
+            // Does this cookie string begin with the name we want?
+            if (cookie.substring(0, name.length + 1) === name + "=") {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+/**
+ * https://shoelace.style/components/alert
+ * @param {string} message
+ * @param {"primary" | "success" | "neutral" | "warning" | "danger"} variant
+ * @param {"exclamation-octagon" | "info-circle"} icon
+ * @param {number} duration
+ * @returns {void}
+ */
+export function notify(message, variant, icon, duration) {
+    const div = document.createElement("div");
+    div.textContent = message;
+    const escaped = div.innerHTML;
+    const alert = Object.assign(document.createElement("sl-alert"), {
+        variant,
+        closable: true,
+        duration: duration,
+        innerHTML: `
+        <sl-icon name="${icon}" slot="icon"></sl-icon>
+        ${escaped}
+      `,
+    });
+    document.body.append(alert);
+    switch (variant) {
+        // case "primary":
+        //   console.log(escaped);
+        //   break;
+        // case "success":
+        //   console.log(escaped);
+        //   break;
+        // case "neutral":
+        //   console.log(escaped);
+        //   break;
+        case "warning":
+            console.warn(escaped);
+            break;
+        case "danger":
+            console.error(escaped);
+            break;
+    }
+    void alert.toast();
+}
+/**
+ * In Django's debug mode, we get a full HTML page as the error response.
+ * We can't use the alert component in this case, so we need to create a dialog
+ * for nicer error messages.
+ * @param {string} html
+ * @param {string} [label]
+ * @returns {void}
+ */
+export function showErrorDialog(html, label) {
+    const errorDialog = document.getElementById("error-dialog");
+    if (!errorDialog) {
+        notify(html, "danger", "exclamation-octagon", 5000);
+        return;
+    }
+    errorDialog.label = label ?? "Operation failed";
+    const iframeElem = document.createElement("iframe");
+    iframeElem.toggleAttribute("sandbox");
+    iframeElem.title = label ?? "Operation failed";
+    iframeElem.srcdoc = html;
+    iframeElem.style.width = "100%";
+    iframeElem.style.height = "100%";
+    errorDialog.replaceChildren(iframeElem);
+    void errorDialog.show();
+}
+/**
+ * @param {AudioBuffer} buffer
+ * @returns {[Float32Array, number]}
+ */
+function downmixToMono(buffer) {
+    const nrChans = buffer.numberOfChannels;
+    const channels = [];
+    for (let chan = 0; chan < nrChans; chan++) {
+        channels.push(buffer.getChannelData(chan));
+    }
+    let max = 0;
+    const samples = new Float32Array(buffer.length);
+    for (let i = 0; i < buffer.length; i++) {
+        for (let chan = 0; chan < nrChans; chan++) {
+            samples[i] += channels[chan][i];
+        }
+        const value = Math.abs(samples[i]);
+        if (value > max)
+            max = value;
+    }
+    return [samples, max];
+}
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Float32Array} samples
+ * @param {number} max
+ * @param {[number, number] | null} prevInterval
+ * @param {[number, number]}
+ * @param {[number, number] | null} nextInterval
+ * @param {string} text
+ * @param {number} sampleRate
+ * @returns {[number, number]}
+ */
+function drawSelection(ctx, samples, max, prevInterval, [begin, end], nextInterval, text, sampleRate) {
+    const { width } = ctx.canvas;
+    console.assert(begin < end);
+    ctx.font = "24px Noto Serif JP";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    const textWidth = ctx.measureText(text).width;
+    let offsetDivisor = (textWidth / width) * 10;
+    offsetDivisor = Math.min(offsetDivisor, 16);
+    offsetDivisor = Math.max(offsetDivisor, 1);
+    const offset = Math.round(((end - begin) * sampleRate) / offsetDivisor);
+    const beginSample = Math.round(sampleRate * begin - offset);
+    const endSample = Math.round(sampleRate * end + offset);
+    const length = endSample - beginSample;
+    const scale = width / length;
+    if (prevInterval) {
+        const [prevBegin, prevEnd] = prevInterval;
+        const prevBeginX = Math.max(0, (Math.round(prevBegin * sampleRate) - beginSample) * scale);
+        const prevEndX = Math.max(0, (Math.round(prevEnd * sampleRate) - beginSample) * scale);
+        if (prevBeginX < prevEndX) {
+            drawFullHeightRect(ctx, prevBeginX, prevEndX, "#ddd");
+        }
+    }
+    if (nextInterval) {
+        const [nextBegin, nextEnd] = nextInterval;
+        const nextBeginX = Math.min(Math.round(length * scale), (Math.round(nextBegin * sampleRate) - beginSample) * scale);
+        const nextEndX = Math.min(Math.round(length * scale), (Math.round(nextEnd * sampleRate) - beginSample) * scale);
+        if (nextBeginX < nextEndX) {
+            drawFullHeightRect(ctx, nextBeginX, nextEndX, "#ddd");
+        }
+    }
+    const beginX = Math.round(offset * scale);
+    const endX = Math.round((length - offset) * scale);
+    drawFullHeightRect(ctx, beginX, endX, "#ccc");
+    drawWave(ctx, samples, max, beginSample, length, scale);
+    drawText(ctx, text, endX - beginX);
+    return [beginX, endX];
+}
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Float32Array} samples
+ * @param {number} max
+ * @param {number} beginSample
+ * @param {number} length
+ * @param {number} scale
+ * @returns {void}
+ */
+function drawWave(ctx, samples, max, beginSample, length, scale) {
+    const { width, height } = ctx.canvas;
+    ctx.beginPath();
+    ctx.moveTo(0, height);
+    let prevX = 0;
+    let maxVal = 0;
+    for (let i = 0; i < length; i++) {
+        const x = Math.round(i * scale);
+        if (x > prevX) {
+            const y = (maxVal * height) / max;
+            ctx.lineTo(prevX, height - y);
+            prevX = x;
+            maxVal = 0;
+        }
+        const value = Math.abs(samples[i + beginSample] ?? 0);
+        if (value > maxVal)
+            maxVal = value;
+    }
+    ctx.lineTo(width, height);
+    ctx.fillStyle = "#000";
+    ctx.fill();
+}
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} begin
+ * @param {number} end
+ * @param {string} color
+ * @returns {void}
+ */
+function drawFullHeightRect(ctx, begin, end, color) {
+    const { height } = ctx.canvas;
+    ctx.beginPath();
+    ctx.rect(begin, 0, end - begin, height);
+    ctx.fillStyle = color;
+    ctx.fill();
+}
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} text
+ * @param {number} maxWidth
+ * @returns {void}
+ */
+function drawText(ctx, text, maxWidth) {
+    const { width, height } = ctx.canvas;
+    ctx.font = "24px Noto Serif JP";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#fff";
+    ctx.strokeText(text, width / 2, height / 2, maxWidth);
+    ctx.fillStyle = "#00f";
+    ctx.fillText(text, width / 2, height / 2, maxWidth);
+}
+/**
+ * @param {ParElems} parElems
+ * @param {boolean} isVerticalWritingMode
+ * @returns {[SlIconButton | null, SlIconButton | null]}
+ */
+function createMergeButtons(parElems, isVerticalWritingMode) {
+    let prevMergeButton = null;
+    if (parElems.prev && parElems.selected.previousElementSibling === parElems.prev) {
+        prevMergeButton = new SlIconButton();
+        prevMergeButton.id = "prev-merge-button";
+        prevMergeButton.name = isVerticalWritingMode ? "arrows-collapse" : "arrows-collapse-vertical";
+        prevMergeButton.label = "Merge with previous media overlay";
+        parElems.selected.insertAdjacentElement("beforebegin", prevMergeButton);
+    }
+    let nextMergeButton = null;
+    if (parElems.next && parElems.selected.nextElementSibling === parElems.next) {
+        nextMergeButton = new SlIconButton();
+        nextMergeButton.id = "next-merge-button";
+        nextMergeButton.name = isVerticalWritingMode ? "arrows-collapse" : "arrows-collapse-vertical";
+        nextMergeButton.label = "Merge with next media overlay";
+        parElems.selected.insertAdjacentElement("afterend", nextMergeButton);
+    }
+    return [prevMergeButton, nextMergeButton];
+}
+/**
+ * @param {ModifyPayload | MergePayload | SplitPayload | HistoryPayload} payload
+ * @returns {Promise<Response>}
+ */
+export async function callEndpoint(payload) {
+    const csrftoken = getCookie("csrftoken");
+    if (!csrftoken)
+        throw Error("Could not read CSRF token from document");
+    return fetch(window.location.href, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json, text/html",
+            "X-CSRFToken": csrftoken,
+        },
+        mode: "same-origin",
+        body: JSON.stringify(payload),
+    });
+}
+/**
+ * @param {Element} elem
+ * @returns {string}
+ */
+function removeRuby(elem) {
+    const textParts = [];
+    for (const childNode of elem.childNodes) {
+        if (childNode.nodeType == Node.TEXT_NODE && childNode.textContent) {
+            textParts.push(childNode.nodeValue ?? "");
+        }
+        else if (childNode.nodeType == Node.ELEMENT_NODE && !["RP", "RT"].includes(childNode.nodeName)) {
+            textParts.push(removeRuby(childNode));
+        }
+    }
+    return textParts.join("");
+}
+/**
+ * @param {string} tooltip
+ * @returns {void}
+ */
+export function enableSpinner(tooltip) {
+    const spinner = document.getElementById("header-spinner");
+    if (spinner) {
+        spinner.classList.remove("invisible");
+        spinner.content = tooltip;
+    }
+}
+/**
+ * @returns {void}
+ */
+export function disableSpinner() {
+    const spinner = document.getElementById("header-spinner");
+    if (spinner) {
+        spinner.classList.add("invisible");
+        spinner.content = "";
+    }
+}
+// @license-end
+/** @typedef {ParData & { op: "CREATE" | "DELETE" | "UPDATE" }} ModifyPayload */
+/**
+ * @typedef {Object} ParData
+ * @property {string} parId
+ * @property {string} textSrc
+ * @property {string} audioSrc
+ * @property {string} clipBegin
+ * @property {string} clipEnd
+ */
+/**
+ * @typedef {Object} ParElems
+ * @property {Element | null} prev
+ * @property {Element} selected
+ * @property {Element | null} next
+ * @property {string} [textSrcNew]
+ * @property {string} [audioSrcNew]
+ */
+/**
+ * @typedef {Object} MergePayload
+ * @property {"MERGE"} op
+ * @property {string} parId
+ * @property {string} otherParId
+ */
+/**
+ * @typedef {Object} SplitPayload
+ * @property {"SPLIT"} op
+ * @property {string} parId
+ * @property {number} index
+ */
+/**
+ * @typedef {Object} HistoryPayload
+ * @property {"UNDO" | "REDO"} op
+ */
+/**
+ * @typedef {Object} ModifyResponse
+ * @property {"OK"} message
+ * @property {ParData} [old]
+ * @property {ParData} [new]
+ * @property {string} [textId]
+ */
+/**
+ * @typedef {Object} ErrorResponse
+ * @property {string} message
+ */

@@ -9,6 +9,8 @@ from typing import IO, Final, Literal, NamedTuple, TypedDict, Union, cast
 from xml.etree.ElementTree import Element
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
+import defusedxml.ElementTree as ET
+import tinycss2
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
@@ -35,6 +37,7 @@ from .epub import (
     read_toc,
     read_xml_hrefs,
     remove_media_overlays,
+    replace_root_selectors,
     split_element,
     split_smil,
     split_xhtml,
@@ -269,6 +272,41 @@ class Book(models.Model):
             smil_path = rootfile_path.parent.joinpath(smil_href)
             self.assert_data_path(smil_path)
         return xhtml_path, smil_path
+
+    def get_xhtml_content(self, item_id: str) -> tuple[str, str, str]:
+        xhtml_path, _ = self.get_xhtml_paths(item_id)
+        xhtml_tree = XhtmlTree(file=xhtml_path)
+        namespaces = xhtml_tree.register_namespaces()
+        head_elem = xhtml_tree.find("head", namespaces=namespaces)
+        assert head_elem is not None
+        link_elems = head_elem.findall("link", namespaces=namespaces)
+        style_rules: list[str] = []
+        font_face_rules: list[str] = []
+        for link_elem in link_elems:
+            if link_elem.get("rel") != "stylesheet" or (href := link_elem.get("href")) is None:
+                continue
+            href_path = xhtml_path.parent.joinpath(href).resolve()
+            self.assert_data_path(href_path)
+            if link_elem.get("rel") == "stylesheet":
+                rules = tinycss2.parse_stylesheet(href_path.read_text(encoding="utf-8"))
+                for rule in rules:
+                    if rule.type == "at-rule" and rule.lower_at_keyword == "font-face":
+                        font_face_rules.append(rule.serialize())
+                    elif rule.type == "qualified-rule":
+                        selector, did_replace = replace_root_selectors(tinycss2.serialize(rule.prelude))
+                        if did_replace:
+                            rule.prelude = tinycss2.parse_component_value_list(selector)
+                            style_rules.append(rule.serialize())
+                        else:
+                            style_rules.append(rule.serialize())
+                    else:
+                        style_rules.append(rule.serialize())
+        body_elem = xhtml_tree.find("body", namespaces=namespaces)
+        assert body_elem is not None
+        body_content = "\n".join(ET.tostring(body_child, encoding="unicode") for body_child in body_elem)
+        style_content = "".join(style_rules)
+        font_face_rules_content = "\n\n".join(font_face_rules)
+        return body_content, style_content, font_face_rules_content
 
     def lock(self, path: Path):
         """Locks a file inside the EPUB directory. The lock is released after 10 seconds."""

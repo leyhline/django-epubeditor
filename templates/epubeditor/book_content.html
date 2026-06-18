@@ -1,8 +1,13 @@
 {% extends "epubeditor/base.html" %}
 
 {% block head %}
-  {% if prev_item_id %}<link rel="prev" href="{% url "book_content" username basename prev_item_id %}">{% endif %}>
-  {% if next_item_id %}<link rel="next" href="{% url "book_content" username basename next_item_id %}">{% endif %}>
+  {% if prev_item_id %}<link rel="prev" href="{% url "book_content" username basename prev_item_id %}">{% endif %}
+  {% if next_item_id %}<link rel="next" href="{% url "book_content" username basename next_item_id %}">{% endif %}
+  {% if font_face_rules %}
+    <style>
+      {{ font_face_rules|safe }}
+    </style>
+  {% endif %}
 {% endblock %}
 {% block title %}{{ title }} - {{ book.title }}{% endblock %}
 
@@ -45,11 +50,15 @@
 {% endblock header_right %}
 
 {% block main %}
-  <epub-edit
-          id="epub-edit"
-          src="{% url "resource_data" username basename xhtml %}"
-          {% if smil %} smilsrc="{% url "resource_data" username basename smil %}" {% endif %}
-          {% if active_class_name %}activeclass="{{ active_class_name }}"{% endif %}>
-  </epub-edit>
-  <epub-overlay-edit id="epub-overlay-edit"></epub-overlay-edit>
+  <div id="epub-display">
+    <template shadowrootmode="open">
+      <style>
+        {{ style_content|safe }}
+      </style>
+      {{ body_content|safe }}
+    </template>
+  </div>
+  <div>
+    <audio id="overlay-audio" controls preload="auto" src="{% url "resources" username basename %}"></audio>
+  </div>
 {% endblock main %}
