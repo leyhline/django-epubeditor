@@ -6,7 +6,7 @@
 }
 
 :root {
-  --min-body-width: 350px;
+  --min-body-width: 400px;
   --nav-width: 250px;
   font-family: var(--sl-font-sans);
   line-height: var(--sl-line-height-normal);
@@ -50,7 +50,7 @@ header {
   }
 
   sl-icon-button::part(base) {
-    font-size: var(--sl-font-size-x-large);
+    font-size: var(--sl-font-size-medium);
     color: var(--sl-color-neutral-0);
     transition: var(--sl-transition-medium) transform;
   }
@@ -68,7 +68,7 @@ header {
   }
 
   sl-spinner {
-    font-size: var(--sl-font-size-x-large);
+    font-size: var(--sl-font-size-medium);
     --indicator-color: var(--sl-color-primary-100);
   }
 
@@ -156,14 +156,14 @@ nav {
 
 main {
   height: calc(100dvh - var(--sl-font-size-3x-large));
-  overflow-y: auto;
   transition: margin-left var(--sl-transition-medium);
   display: flex;
   flex-direction: column;
 }
 
-.epub-edit {
+#epub-edit {
   flex: 1 1 auto;
+  overflow: auto;
 }
 
 @media only screen and (min-width: 600px) {

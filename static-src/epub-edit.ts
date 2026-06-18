@@ -121,7 +121,7 @@ export class EpubEdit extends LitElement {
           if (this.editModeAbortController) this.editModeAbortController.abort()
           removeEditModeListeners(parseResult.body)
           this.parseResult = parseResult
-          this.shadowRoot!.replaceChildren(...parseResult.body, epubOverlayEdit)
+          this.shadowRoot!.replaceChildren(...parseResult.body)
           const xhtmlUrl = new URL(this.src!, window.location.origin)
           const smilUrl = new URL(this.smilsrc!, window.location.origin)
           this.overlayElems = createOverlayTuples(parseResult.body, parseResult.parsData!, xhtmlUrl, smilUrl).map(
@@ -314,12 +314,12 @@ async function handleXml(
 ): Promise<ParseResult> {
   if (!xhtmlPath) throw new Error("src attribute missing")
   const xhtmlUrl = new URL(xhtmlPath, window.location.origin)
-  const xhtmlPromise: Promise<string> = fetch(xhtmlUrl, { signal }).then((response) => {
+  const xhtmlPromise: Promise<string> = fetch(xhtmlUrl, { signal, cache: "no-cache" }).then((response) => {
     if (!response.ok) throw new Error(response.statusText)
     return response.text()
   })
   const smilPromise: Promise<string | undefined> = smilPath
-    ? fetch(smilPath, { signal }).then((response) => {
+    ? fetch(smilPath, { signal, cache: "no-cache" }).then((response) => {
         if (!response.ok) throw new Error(response.statusText)
         return response.text()
       })
@@ -388,11 +388,8 @@ function parseCss(css: string, cssUrl: URL): CssParseResult {
           return `url("${resolvedUrl.pathname}")`
         })
         fontFaceRule.style.setProperty("src", newFontFaceSrc)
-      } catch (error) {
-        console.warn(
-          "Firefox does not support CSSStyleDeclaration.setProperty, hence using a workaround. Browser exception:",
-          error,
-        )
+      } catch {
+        // console.warn("Firefox does not support CSSStyleDeclaration.setProperty, hence using a workaround. Browser exception:", error)
         const newFontFaceRuleText = fontFaceRule.cssText.replaceAll(RE_FONT_FACE_URL, (_, rawUrl: string) => {
           const cleanUrl = rawUrl.trim().replace(/^["']|["']$/g, "")
           const resolvedUrl = new URL(cleanUrl, cssUrl)

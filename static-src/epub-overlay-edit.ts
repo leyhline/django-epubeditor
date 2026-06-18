@@ -64,9 +64,6 @@ const RE_CLOCK = /^(?:(?<hours>\d+):)??(?:(?<minutes>\d+):)??(?<seconds>\d+)(?<f
 export class EpubOverlayEdit extends LitElement {
   static styles = css`
     :host {
-      position: absolute;
-      bottom: 0;
-      right: 0;
       width: 100%;
       display: flex;
       flex-direction: column;
