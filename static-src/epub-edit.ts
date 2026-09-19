@@ -402,15 +402,20 @@ function parseCss(css: string, cssUrl: URL): CssParseResult {
       fontFaceRules.push(fontFaceRule)
     } else if (rule.constructor.name === "CSSStyleRule") {
       const styleRule = rule as CSSStyleRule
-      if (["html", "body", ":root"].includes(styleRule.selectorText)) {
-        styleRule.selectorText = ":host"
-        const writingModeRules = new Set<string>()
-        for (const styleProp of styleRule.style) {
-          if (["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].includes(styleProp)) {
-            writingModeRules.add(styleRule.style.getPropertyValue(styleProp))
+      const targets = new Set(["html", "body", ":root"])
+      const selectors = styleRule.selectorText.split(",").map((s) => s.trim())
+      const hasMatch = selectors.some((s) => targets.has(s))
+      if (hasMatch) {
+        const rewritten = selectors.map((s) => (targets.has(s) ? ":host" : s))
+        styleRule.selectorText = [...new Set(rewritten)].join(", ")
+        for (const prop of styleRule.style) {
+          if (["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].includes(prop)) {
+            const value = styleRule.style.getPropertyValue(prop)
+            if (value === "vertical-rl" || value === "vertical-lr") {
+              isVerticalWritingMode = true
+            }
           }
         }
-        if (writingModeRules.has("vertical-rl") || writingModeRules.has("vertical-lr")) isVerticalWritingMode = true
       }
     }
   }
